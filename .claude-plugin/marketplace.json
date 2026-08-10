@@ -1,7 +1,8 @@
 {
   "name": "onav",
   "owner": {
-    "name": "Tibor Kiss <kiss.tibor@gmail.com>"
+    "name": "Tibor Kiss",
+    "email": "kiss.tibor@gmail.com"
   },
   "license": "MIT",
   "homepage": "",
@@ -16,7 +17,8 @@
       "description": "Generates a derived Obsidian note-graph layer over a project's BMad canonical artifacts \u2014 every codified entity becomes a backlinked note, navigable in both directions.",
       "version": "0.1.0",
       "author": {
-        "name": "Tibor Kiss <kiss.tibor@gmail.com>"
+        "name": "Tibor Kiss",
+        "email": "kiss.tibor@gmail.com"
       },
       "skills": [
         "./"
