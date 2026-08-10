@@ -1,7 +1,7 @@
 code: onav
 name: "BMad Note-Graph Navigator"
 description: "Generates a derived Obsidian note-graph layer over a project's BMad canonical artifacts — every codified entity becomes a backlinked note, navigable in both directions."
-module_version: 0.3.1
+module_version: 0.3.2
 default_selected: false
 module_greeting: >
   The BMad Note-Graph Navigator (onav) is configured. To index this project's

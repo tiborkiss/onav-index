@@ -449,12 +449,14 @@ class TestEmission(unittest.TestCase):
             self.assertIn("### References", text)
             self.assertIn("[[FR-2|FR-2]] — Independent crop-window configuration", text)
             self.assertIn("[[E1a|E1a]] — Foundation", text)
-            # Tier 1: incoming is a live Dataview query, scoped to the project,
-            # self-aliased via link() for the same reason, showing titles too.
+            # Tier 1: incoming is a live Dataview TABLE, scoped to the project,
+            # self-aliased via link() for the same reason, showing titles too
+            # (as a separate column — Link + String concatenation in LIST is
+            # not reliable, confirmed broken in practice).
             self.assertIn("```dataview", text)
             self.assertIn('FROM [[]] AND "projects/proj"', text)
             self.assertIn("link(file.name, file.name)", text)
-            self.assertIn('+ " — " + title', text)
+            self.assertIn('title AS "Title"', text)
             # No static incoming list remains (replaced by Dataview).
             self.assertNotIn("- [[AD-1", text)
 

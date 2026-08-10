@@ -133,7 +133,7 @@ emits only timestamped frames, calibration data, and per-zone stats…
 
 ### Referenced by
 ```dataview
-LIST WITHOUT ID link(file.name, file.name) + " — " + title
+TABLE WITHOUT ID link(file.name, file.name) AS "Entity", type AS "Type", title AS "Title"
 FROM [[]] AND "projects/my-project"
 WHERE file.name != this.file.name
 SORT type ASC, file.name ASC

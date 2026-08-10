@@ -869,19 +869,21 @@ def emit_entity_note(
 def _referenced_by_query(project_subpath: str) -> str:
     """Live Dataview backlinks query, scoped to this project (sealed silos).
 
-    Renders each backlink as ``ID — Title`` via an explicit self-aliased link
-    (``link(file.name, file.name)``), matching the static References section's
-    format and, critically, its immunity to bare-wikilink title-substitution
-    plugins (Front Matter Title, Title As Link Text) — Dataview's implicit
-    ``file.link`` (what a bare ``LIST`` shows) is a bare link and gets rewritten
-    by such plugins the same way a raw ``[[ID]]`` would. Sorted by type then
-    name rather than grouped, trading the M3 typed-grouping for simplicity and
-    title-visibility — grouping + per-row titles needs Dataview's row-array
-    syntax, which adds fragility for a display-only concern.
+    Renders each backlink as an "Entity | Type | Title" table, self-aliasing
+    the entity link (``link(file.name, file.name)``) rather than Dataview's
+    implicit ``file.link`` — the latter is a bare link and gets rewritten by
+    bare-wikilink title-substitution plugins (Front Matter Title, Title As
+    Link Text) the same way a raw ``[[ID]]`` markdown link would. A TABLE with
+    separate columns, not a single concatenated ``LIST`` string, because
+    Dataview's ``+`` operator on a Link + String is not reliably defined —
+    confirmed broken in practice (the title silently failed to render).
+    Sorted by type then name rather than grouped, trading the M3
+    typed-grouping for simplicity — grouping + per-row titles needs
+    Dataview's row-array syntax, which adds fragility for a display concern.
     """
     return (
         "```dataview\n"
-        'LIST WITHOUT ID link(file.name, file.name) + " — " + title\n'
+        'TABLE WITHOUT ID link(file.name, file.name) AS "Entity", type AS "Type", title AS "Title"\n'
         f'FROM [[]] AND "{project_subpath}"\n'
         "WHERE file.name != this.file.name\n"
         "SORT type ASC, file.name ASC\n"
