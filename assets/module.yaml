@@ -1,0 +1,32 @@
+code: onav
+name: "BMad Note-Graph Navigator"
+description: "Generates a derived Obsidian note-graph layer over a project's BMad canonical artifacts — every codified entity becomes a backlinked note, navigable in both directions."
+module_version: 0.1.0
+default_selected: false
+module_greeting: >
+  The BMad Note-Graph Navigator (onav) is configured. To index this project's
+  canonical artifacts into your vault, invoke the onav-index skill and run
+  `init` (use `--emit-mode manifest` if your vault is turbovault/LiveSync-managed).
+  Re-run this setup any time to change the vault root or other settings.
+
+# onav reads config from both _bmad/config.toml (installer-managed) and
+# _bmad/config.yaml (this setup writes here) — see SKILL.md. The variables below
+# land under [modules.onav] in config.yaml / config.user.yaml.
+
+onav_vault_root:
+  prompt: "Absolute path to your Obsidian vault root (where the projects/ subfolder will live)"
+  default: ""
+  required: true
+  example: "/home/tibor/vaults/tibor-vault"
+
+onav_projects_subfolder:
+  prompt: "Subfolder name under the vault root for indexed BMad projects"
+  default: "projects"
+
+onav_prefer_turbovault:
+  prompt: "Prefer turbovault MCP for vault writes when available? (true → use --emit-mode manifest; falls back to direct file editing.)"
+  default: true
+
+onav_stale_days:
+  prompt: "Days after which an unreviewed entity note counts as 'stale' on the dashboard"
+  default: 14
