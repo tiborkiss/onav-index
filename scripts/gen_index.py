@@ -820,7 +820,14 @@ def _render_entity_note(
         parts.append("")
         for ref in outgoing:
             ref_title = title_by_id.get(ref)
-            parts.append(f"- [[{ref}]] — {ref_title}" if ref_title else f"- [[{ref}]]")
+            # Explicit self-alias [[ID|ID]], not bare [[ID]]: some Obsidian
+            # plugins (Front Matter Title, Title As Link Text) rewrite BARE
+            # wikilinks to show the target's frontmatter title instead of the
+            # ID — by design they leave already-aliased links alone. Titles
+            # containing a colon (common here) render visibly broken under
+            # that substitution, so force the alias to keep "ID" the display
+            # text regardless of what plugins the vault has installed.
+            parts.append(f"- [[{ref}|{ref}]] — {ref_title}" if ref_title else f"- [[{ref}|{ref}]]")
         parts.append("")
         parts.append("### Referenced by")
         parts.append("")
@@ -862,15 +869,19 @@ def emit_entity_note(
 def _referenced_by_query(project_subpath: str) -> str:
     """Live Dataview backlinks query, scoped to this project (sealed silos).
 
-    Renders each backlink as ``ID — Title`` (via ``LIST " — " + title``),
-    matching the static References section's format. Sorted by type then name
-    rather than grouped, trading the M3 typed-grouping for simplicity and
+    Renders each backlink as ``ID — Title`` via an explicit self-aliased link
+    (``link(file.name, file.name)``), matching the static References section's
+    format and, critically, its immunity to bare-wikilink title-substitution
+    plugins (Front Matter Title, Title As Link Text) — Dataview's implicit
+    ``file.link`` (what a bare ``LIST`` shows) is a bare link and gets rewritten
+    by such plugins the same way a raw ``[[ID]]`` would. Sorted by type then
+    name rather than grouped, trading the M3 typed-grouping for simplicity and
     title-visibility — grouping + per-row titles needs Dataview's row-array
     syntax, which adds fragility for a display-only concern.
     """
     return (
         "```dataview\n"
-        'LIST " — " + title\n'
+        'LIST WITHOUT ID link(file.name, file.name) + " — " + title\n'
         f'FROM [[]] AND "{project_subpath}"\n'
         "WHERE file.name != this.file.name\n"
         "SORT type ASC, file.name ASC\n"
@@ -940,7 +951,7 @@ def _render_project_index(
     p.append("### Stale — oldest `last_reviewed` first")
     p.append("")
     p.append("```dataview")
-    p.append("TABLE WITHOUT ID file.link AS \"Entity\", type AS \"Type\", last_reviewed AS \"Last reviewed\"")
+    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", type AS \"Type\", last_reviewed AS \"Last reviewed\"")
     p.append(f"FROM \"{folder}\"")
     p.append("WHERE type != null")
     p.append("SORT last_reviewed ASC")
@@ -950,7 +961,7 @@ def _render_project_index(
     p.append("### Orphans — no inbound links")
     p.append("")
     p.append("```dataview")
-    p.append("LIST")
+    p.append("LIST WITHOUT ID link(file.name, file.name)")
     p.append(f"FROM \"{folder}\"")
     p.append("WHERE type != null AND length(file.inlinks) = 0")
     p.append("SORT file.name ASC")
@@ -959,7 +970,7 @@ def _render_project_index(
     p.append("### Hotspots — most-referenced")
     p.append("")
     p.append("```dataview")
-    p.append("TABLE WITHOUT ID file.link AS \"Entity\", type AS \"Type\", length(file.inlinks) AS \"Inbound\"")
+    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", type AS \"Type\", length(file.inlinks) AS \"Inbound\"")
     p.append(f"FROM \"{folder}\"")
     p.append("WHERE type != null AND length(file.inlinks) > 0")
     p.append("SORT length(file.inlinks) DESC")
@@ -976,7 +987,7 @@ def _render_project_index(
     p.append("## All entities")
     p.append("")
     p.append("```dataview")
-    p.append("TABLE WITHOUT ID file.link AS \"Entity\", title AS \"Title\"")
+    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", title AS \"Title\"")
     p.append(f"FROM \"{folder}\"")
     p.append("WHERE type != null")
     p.append("SORT type ASC, file.name ASC")

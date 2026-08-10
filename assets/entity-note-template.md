@@ -26,19 +26,25 @@ via source_sha + last_reviewed)>
 
 ### References
 
-- [[<other-entity-ID>]] — <other entity's title>   (outgoing — IDs cited in
-                          THIS entity's canonical section. The ID stays the
-                          literal link target; the title is plain text
-                          appended on the same line, looked up from the full
-                          current entity set. A reference to an ID with no
-                          known title — a missing-note gap — renders bare.
-                          Static, because it is canonical-derived and only
-                          changes on regen.)
+- [[<other-entity-ID>|<other-entity-ID>]] — <other entity's title>   (outgoing
+                          — IDs cited in THIS entity's canonical section. The
+                          link is explicitly self-aliased ([[ID|ID]], not bare
+                          [[ID]]) so bare-link title-substitution plugins
+                          (Front Matter Title, Title As Link Text) can't
+                          hijack the display text — those plugins rewrite
+                          UNALIASED links to show the target's frontmatter
+                          title, which breaks visibly for any title containing
+                          a colon. The title is plain text appended on the
+                          same line, looked up from the full current entity
+                          set. A reference to an ID with no known title — a
+                          missing-note gap — still renders self-aliased but
+                          bare, no title suffix. Static, because it is
+                          canonical-derived and only changes on regen.)
 
 ### Referenced by
 
 ```dataview
-LIST " — " + title
+LIST WITHOUT ID link(file.name, file.name) + " — " + title
 FROM [[]] AND "projects/<slug>"
 WHERE file.name != this.file.name
 SORT type ASC, file.name ASC
@@ -46,8 +52,11 @@ SORT type ASC, file.name ASC
 
 <!-- The Dataview query above is tier 1 — LIVE: every entity whose static
 References list links to this note appears here as "ID — Title", sorted by
-type then name, with no regen needed. Renders as a code block without the
-Dataview plugin; the native backlinks panel is the universal fallback.
+type then name, with no regen needed. link(file.name, file.name) is Dataview's
+self-alias equivalent — the implicit file.link a bare LIST/TABLE would use is
+just as vulnerable to bare-link title-substitution as a raw [[ID]] wikilink.
+Renders as a code block without the Dataview plugin; the native backlinks
+panel is the universal fallback.
 
 Sections below arrive in later milestones:
 

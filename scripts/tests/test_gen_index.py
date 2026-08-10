@@ -442,17 +442,21 @@ class TestEmission(unittest.TestCase):
                 title_by_id=title_by_id,
             )
             text = note.read_text(encoding="utf-8")
-            # Tier 2: outgoing references are static wiki-links, ID + title on the same line.
+            # Tier 2: outgoing references are static wiki-links, self-aliased
+            # [[ID|ID]] (immune to bare-link title-substitution plugins), with
+            # the title appended as plain text on the same line.
             self.assertIn("## Relationships", text)
             self.assertIn("### References", text)
-            self.assertIn("[[FR-2]] — Independent crop-window configuration", text)
-            self.assertIn("[[E1a]] — Foundation", text)
-            # Tier 1: incoming is a live Dataview query, scoped to the project, showing titles too.
+            self.assertIn("[[FR-2|FR-2]] — Independent crop-window configuration", text)
+            self.assertIn("[[E1a|E1a]] — Foundation", text)
+            # Tier 1: incoming is a live Dataview query, scoped to the project,
+            # self-aliased via link() for the same reason, showing titles too.
             self.assertIn("```dataview", text)
             self.assertIn('FROM [[]] AND "projects/proj"', text)
-            self.assertIn('LIST " — " + title', text)
+            self.assertIn("link(file.name, file.name)", text)
+            self.assertIn('+ " — " + title', text)
             # No static incoming list remains (replaced by Dataview).
-            self.assertNotIn("- [[AD-1]]", text)
+            self.assertNotIn("- [[AD-1", text)
 
     def test_reference_without_known_title_stays_bare(self) -> None:
         # A missing-note gap (referenced ID with no title yet known) must not
@@ -467,8 +471,9 @@ class TestEmission(unittest.TestCase):
                 title_by_id={},
             )
             text = note.read_text(encoding="utf-8")
-            self.assertIn("- [[FR-99]]\n", text)
-            self.assertNotIn("[[FR-99]] —", text)
+            # Still self-aliased (consistent, plugin-safe) even with no title to append.
+            self.assertIn("- [[FR-99|FR-99]]\n", text)
+            self.assertNotIn("[[FR-99|FR-99]] —", text)
 
     def test_note_tag_taxonomy_in_frontmatter(self) -> None:
         ent = gen_index.Entity(
