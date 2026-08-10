@@ -40,28 +40,33 @@ Then invoke the skill with `setup` (or `configure`) to register the module and s
 ## Quick start
 
 ```bash
-# 1. Configure (once): sets onav_vault_root + preferences.
-#    Invoke the onav-index skill with `setup`, or edit _bmad/config.yaml directly:
-#      modules:
-#        onav:
-#          onav_vault_root: /path/to/your/vault
+# 1. Configure (once): add to _bmad/custom/config.user.toml
+#    (this file is never overwritten by the BMad installer):
+#      [modules.onav]
+#      onav_vault_root = "/path/to/your/vault"
+#      onav_projects_subfolder = "projects/YourOrg"
+#      onav_project_slug = "YourProject"
 
-# 2. Index the project into the vault (105 notes from a real project):
-uv run scripts/gen_index.py --project-root . --vault-root /path/to/your/vault init --force
+# 2. Verify the environment resolves:
+uv run scripts/gen_index.py --project-root . doctor
 
-# 3. Open <vault>/projects/<project-slug>/index.md in Obsidian.
+# 3a. If your vault is turbovault/LiveSync-managed (manifest mode):
+uv run scripts/gen_index.py --project-root . --emit-mode manifest init --force
+# → apply the resulting JSON manifest via turbovault MCP:
+#   chunk manifest.writes into batches of ~15 ops, apply each via
+#   turbovault_batch_execute(operations=<JSON array>). One git commit per batch.
+
+# 3b. If your vault is a plain folder (file mode):
+uv run scripts/gen_index.py --project-root . --vault-root /path/to/vault init --force
+
+# 4. Open <vault>/<projects_subfolder>/<project-slug>/index.md in Obsidian.
 ```
 
-If your vault is **turbovault- or LiveSync-managed**, use manifest mode so the agent applies writes via MCP (raw file writes desync those systems):
-
-```bash
-uv run scripts/gen_index.py --vault-root /path/to/vault --emit-mode manifest init --force
-# → apply the resulting JSON manifest via turbovault_write_note(...)
-```
+**Org-nested layouts:** combine `--projects-subfolder` and `--project-slug` (or their config equivalents) to land at e.g. `<vault>/projects/YourOrg/YourProject/` instead of the default `<vault>/projects/your-project/`. Both accept nested paths — e.g. `--projects-subfolder "projects/YourOrg" --project-slug "YourProject"`.
 
 ## Commands
 
-The generator (`scripts/gen_index.py`) has four subcommands. Global flags — `--project-root`, `--vault-root`, `--emit-mode {file,manifest}`, `-H/--headless` — go before the subcommand.
+The generator (`scripts/gen_index.py`) has four subcommands. Global flags — `--project-root`, `--vault-root`, `--project-slug`, `--projects-subfolder`, `--emit-mode {file,manifest}`, `-H/--headless` — go before the subcommand.
 
 | Command | Purpose |
 | --- | --- |
@@ -86,23 +91,22 @@ The generator (`scripts/gen_index.py`) has four subcommands. Global flags — `-
 
 ## Configuration
 
-Config keys live under `[modules.onav]` (in `_bmad/config.yaml`, or `.toml` — onav reads both). Set via the skill's `setup`/`configure` action, or edit directly.
+Config keys live under `[modules.onav]`. Edit `_bmad/custom/config.user.toml` directly (this file is never overwritten by the BMad installer — the right place for personal overrides):
+
+```toml
+[modules.onav]
+onav_vault_root = "/home/you/your-vault"
+onav_projects_subfolder = "projects/YourOrg"
+onav_project_slug = "YourProject"
+```
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `onav_vault_root` | *(required)* | Absolute path to your Obsidian vault root. Emit path: `<vault>/<projects_subfolder>/<project-slug>/`. |
 | `onav_projects_subfolder` | `projects` | Subfolder under the vault root for indexed BMad projects. Accepts nesting (e.g. `projects/YourOrg`) for an org-scoped layout. |
-| `onav_project_slug` | *(auto-derived)* | Exact-case override for this project's leaf folder name — the default auto-derives a lowercase-kebab slug (`ToF-Tracking-WS` → `tof-tracking-ws`). A `--project-slug` CLI flag overrides per-invocation. |
+| `onav_project_slug` | *(auto-derived)* | Exact-case override for this project's leaf folder name — the default auto-derives a lowercase-kebab slug (`ToF-Tracking-WS` → `tof-tracking-ws`). Override per-invocation with `--project-slug`. |
 | `onav_prefer_turbovault` | `true` | Prefer manifest mode / turbovault for vault writes; falls back to direct file editing. |
 | `onav_stale_days` | `14` | Days after which an unreviewed note counts as stale on the dashboard. |
-
-**Org-nested, case-preserving layout** — combine both to land at e.g. `<vault>/projects/BlendArtis/ToF-Tracking-WS/` instead of the default `<vault>/projects/tof-tracking-ws/`:
-
-```bash
-uv run scripts/gen_index.py --project-root . --vault-root /path/to/vault \
-  --project-slug "ToF-Tracking-WS" --projects-subfolder "projects/BlendArtis" init --force
-# or set onav_project_slug / onav_projects_subfolder in config to make it permanent.
-```
 
 Project name + canonical paths are **not** config — they auto-resolve from the host project's BMad config.
 
