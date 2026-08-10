@@ -100,9 +100,8 @@ Config keys live under `[modules.onav]` (in `_bmad/config.yaml`, or `.toml` — 
 
 ```bash
 uv run scripts/gen_index.py --project-root . --vault-root /path/to/vault \
-  --project-slug "ToF-Tracking-WS" init --force
-# with onav_projects_subfolder = "projects/BlendArtis" set in config,
-# or pass it inline via config for a one-off test.
+  --project-slug "ToF-Tracking-WS" --projects-subfolder "projects/BlendArtis" init --force
+# or set onav_project_slug / onav_projects_subfolder in config to make it permanent.
 ```
 
 Project name + canonical paths are **not** config — they auto-resolve from the host project's BMad config.

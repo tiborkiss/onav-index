@@ -38,7 +38,7 @@ Config keys (under `[modules.onav]`):
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `onav_vault_root` | (none — required) | Absolute path to the Obsidian vault root. The emit path is `<vault_root>/<projects_subfolder>/<project-slug>/`. |
-| `onav_projects_subfolder` | `projects` | Subfolder under the vault root for indexed BMad projects. Accepts nesting (e.g. `projects/BlendArtis`) for an org-scoped layout. |
+| `onav_projects_subfolder` | `projects` | Subfolder under the vault root for indexed BMad projects. Accepts nesting (e.g. `projects/BlendArtis`) for an org-scoped layout. A `--projects-subfolder` CLI flag overrides per-invocation. |
 | `onav_project_slug` | (auto-derived) | Exact-case override for this project's leaf folder name — bypasses the default lowercase-kebab slug (`ToF-Tracking-WS` → `tof-tracking-ws`). A `--project-slug` CLI flag overrides this per-invocation. Combine with a nested `onav_projects_subfolder` for `<vault>/projects/BlendArtis/ToF-Tracking-WS/`-style paths. |
 | `onav_prefer_turbovault` | `true` | Prefer turbovault MCP / manifest mode for vault writes when available; falls back to direct file editing. |
 | `onav_stale_days` | `14` | Days after which an unreviewed note counts as stale on the dashboard. |

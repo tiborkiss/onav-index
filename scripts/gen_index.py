@@ -266,7 +266,10 @@ def _expand_root(value: str, project_root: Path) -> Path:
 
 
 def resolve_context(
-    project_root: Path, vault_root_override: str | None, project_slug_override: str | None = None
+    project_root: Path,
+    vault_root_override: str | None,
+    project_slug_override: str | None = None,
+    projects_subfolder_override: str | None = None,
 ) -> ProjectContext:
     project_root = project_root.resolve()
     config = _read_bmad_config(project_root)
@@ -304,7 +307,7 @@ def resolve_context(
         project_slug=project_slug,
         project_root=project_root,
         vault_root=vault_root,
-        projects_subfolder=onav.get("onav_projects_subfolder", "projects"),
+        projects_subfolder=projects_subfolder_override or onav.get("onav_projects_subfolder", "projects"),
         planning_artifacts=planning_artifacts,
         stale_days=int(onav.get("onav_stale_days", 14)),
         prefer_turbovault=bool(onav.get("onav_prefer_turbovault", True)),
@@ -1312,7 +1315,7 @@ def _emit_all(
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
+    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug, args.projects_subfolder)
 
     if ctx.project_dir.exists() and any(ctx.project_dir.iterdir()):
         msg = (
@@ -1388,7 +1391,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     and missing-note gaps (newly-referenced IDs with no note yet). The agent
     renders the suggestion and runs the follow-up on [All | None | IDs].
     """
-    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
+    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug, args.projects_subfolder)
     entities, source_shas = _collect_entities(ctx)
     by_id = {e.id: e for e in entities}
 
@@ -1509,7 +1512,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     leftover WITH Personal notes is never deleted — it is flagged in the log
     for manual review. Only un-annotated generated cruft is pruned.
     """
-    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
+    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug, args.projects_subfolder)
     entities, source_shas = _collect_entities(ctx)
 
     if not entities:
@@ -1686,6 +1689,12 @@ def build_parser() -> argparse.ArgumentParser:
         "'projects/BlendArtis') for an org-nested, case-preserving layout.",
     )
     parser.add_argument(
+        "--projects-subfolder",
+        default=None,
+        help="Override onav_projects_subfolder for this invocation (accepts nested paths, "
+        "e.g. 'projects/BlendArtis').",
+    )
+    parser.add_argument(
         "--emit-mode",
         choices=("file", "manifest"),
         default="file",
@@ -1737,7 +1746,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     # Resolve context (may raise on missing vault root — catch and report).
     try:
-        ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
+        ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug, args.projects_subfolder)
     except SystemExit as e:
         checks.append({"check": "vault root configured", "status": "fail", "detail": str(e)})
         print(json.dumps({"status": "fail", "checks": checks}, indent=2))

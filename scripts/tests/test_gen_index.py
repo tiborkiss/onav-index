@@ -246,6 +246,23 @@ class TestProjectSlugOverride(unittest.TestCase):
                 ctx.project_dir, Path(tmp) / "vault" / "projects" / "BlendArtis" / "ToF-Tracking-WS"
             )
 
+    def test_cli_projects_subfolder_override_wins_over_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            (root / "_bmad" / "config.user.toml").write_text(
+                '[modules.onav]\nonav_projects_subfolder = "from-config"\n', encoding="utf-8"
+            )
+            ctx = gen_index.resolve_context(
+                root,
+                str(Path(tmp) / "vault"),
+                project_slug_override="ToF-Tracking-WS",
+                projects_subfolder_override="projects/BlendArtis",
+            )
+            self.assertEqual(
+                ctx.project_dir, Path(tmp) / "vault" / "projects" / "BlendArtis" / "ToF-Tracking-WS"
+            )
+
     def test_path_traversal_in_override_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "proj"
