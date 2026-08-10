@@ -1145,11 +1145,12 @@ def _render_vault_root_moc(
     total = sum(stats.values())
     breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(stats.items()) if v)
     entry = f"- [[{project_slug}/index|{project_name}]] — {total} entities ({breakdown})"
+    prefix = f"- [[{project_slug}/".lower()
     other_lines = [
         ln
         for ln in existing.splitlines()
         if ln.strip().startswith("- [[")
-        and not ln.lower().startswith(f"- [[{project_slug}/")
+        and not ln.strip().lower().startswith(prefix)
     ]
     body = header_lines + other_lines + [entry, ""]
     return "\n".join(body)

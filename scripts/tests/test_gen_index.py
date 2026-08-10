@@ -686,6 +686,30 @@ class TestGraphColoringNote(unittest.TestCase):
             self.assertIn(user_edit.strip(), note.read_text(encoding="utf-8"))
 
 
+class TestVaultRootMOC(unittest.TestCase):
+    def test_mixed_case_slug_upsert_does_not_duplicate_on_repeat(self) -> None:
+        # Regression: the exclude-match must be case-insensitive on BOTH sides.
+        # A mixed-case slug (e.g. from --project-slug) previously never matched
+        # its own prior entry, so repeated runs appended a new line every time.
+        existing = ""
+        for _ in range(3):
+            existing = gen_index._render_vault_root_moc(
+                existing, "ToF-Tracking-WS", "ToF-Tracking-WS", {"FR": 17}
+            )
+        entry_lines = [ln for ln in existing.splitlines() if ln.strip().startswith("- [[")]
+        self.assertEqual(len(entry_lines), 1)
+
+    def test_other_projects_preserved_across_upsert(self) -> None:
+        existing = gen_index._render_vault_root_moc("", "project-a", "Project A", {"FR": 1})
+        existing = gen_index._render_vault_root_moc(existing, "project-b", "Project B", {"FR": 2})
+        # Re-upsert project-a (e.g. a refresh) must not drop project-b's entry.
+        existing = gen_index._render_vault_root_moc(existing, "project-a", "Project A", {"FR": 5})
+        self.assertIn("project-a/index", existing)
+        self.assertIn("project-b/index", existing)
+        entry_lines = [ln for ln in existing.splitlines() if ln.strip().startswith("- [[")]
+        self.assertEqual(len(entry_lines), 2)
+
+
 # ---------------------------------------------------------------------------
 # refresh — regenerate-all with pruning (M5)
 # ---------------------------------------------------------------------------
