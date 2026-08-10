@@ -65,25 +65,34 @@ GENERATOR_TAG = "onav-index (M7)"
 SEP = r"[—–-]"
 FR_HEADING_RE = re.compile(rf"^#{{1,6}}\s+FR-(?P<id>\d+[a-z]?)\s*[:{SEP[1]}]\s*(?P<title>.+?)\s*$")
 AD_HEADING_RE = re.compile(rf"^#{{1,6}}\s+AD-(?P<id>\d+)\s*{SEP}\s*(?P<title>.+?)\s*$")
-EPIC_HEADING_RE = re.compile(r"^#{1,6}\s+Epic\s+(?P<id>E\d+[a-z]?)\s*:\s*(?P<title>.+?)\s*$")
-STORY_HEADING_RE = re.compile(r"^#{1,6}\s+Story\s+(?P<id>E\d+[a-z]?\.\d+)\s*:\s*(?P<title>.+?)\s*$")
+EPIC_HEADING_RE = re.compile(r"^#{1,6}\s+Epic\s+(?:E)?(?P<id>\d+[a-z]?)\s*:\s*(?P<title>.+?)\s*$")
+STORY_HEADING_RE = re.compile(r"^#{1,6}\s+Story\s+(?:E)?(?P<id>\d+[a-z]?\.\d+)\s*:\s*(?P<title>.+?)\s*$")
 SM_BULLET_RE = re.compile(r"^-\s+\*\*SM-(?P<id>C?\d+)\*\*\s*:\s*(?P<text>.+?)\s*$")
 CAP_HEADING_RE = re.compile(rf"^-\s+\*\*CAP-(?P<id>\d+)\s*{SEP}\s*(?P<title>.+?)\*\*\s*$")
 NFR_BULLET_RE = re.compile(r"^-\s+\*\*NFR-(?P<id>\d+)\s*\((?P<name>[^)]+)\):\*\*\s*(?P<text>.+?)\s*$")
 HEADING_RE = re.compile(r"^#{1,6}\s")
 BOLD_SUBSECTION_RE = re.compile(r"^\*\*.+\*\*\s*[:{-}]")
-COVERAGE_MAP_RE = re.compile(r"^-\s+FR-(?P<fr>\d+[a-z]?)\s*→\s*(?P<epic>E\d+[a-z]?)")
+
+# Coverage map: - FR-1 → E1a (old) or - **FR-1** → Epic 2 (mixed) — E is optional
+COVERAGE_MAP_RE = re.compile(r"^-\s+\*{0,2}FR-(?P<fr>\d+[a-z]?)\*{0,2}\s*→\s*(?:Epic\s+)?(?P<epic>E?\d+[a-z]?)")
+# Coverage map inline: FR1:  Epic 1 — text (v6.10.0 template)
+COVERAGE_MAP_INLINE_RE = re.compile(r"^FR(?P<fr>\d+[a-z]?)\s*[:\)]\s*Epic\s+(?P<epic_num>\d+[a-z]?)")
+
+# Inline FR/NFR lines in epics.md (v6.10.0 template: FR1: text, NFR1: text)
+FR_INLINE_RE = re.compile(r"^FR(?P<id>\d+[a-z]?)\s*[:\)]\s*(?P<text>.+?)\s*$")
+NFR_INLINE_RE = re.compile(r"^NFR(?P<id>\d+[a-z]?)\s*[:\)]\s*(?P<text>.+?)\s*$")
 
 # Master ID tokenizer. Alternatives are ordered so the most specific (Story)
 # wins before Epic; the Epic negative lookahead is belt-and-suspenders so a
 # bare "E1a" doesn't also match inside "E1a.1" text that Story already consumed.
+# FR/NFR accept optional hyphen (FR1 or FR-1) — normalized in extract_all_refs.
 TOKEN_RE = re.compile(
     r"(?P<Story>E\d+[a-z]?\.\d+)"
-    r"|(?P<FR>FR-\d+[a-z]?)"
+    r"|(?P<FR>FR-?\d+[a-z]?)"
     r"|(?P<AD>AD-\d+)"
     r"|(?P<SM>SM-C?\d+)"
     r"|(?P<CAP>CAP-\d+)"
-    r"|(?P<NFR>NFR-\d+)"
+    r"|(?P<NFR>NFR-?\d+)"
     r"|(?P<Epic>E\d+[a-z]?(?!\.\d))"
 )
 
@@ -145,6 +154,8 @@ def extract_all_refs(text: str, own_id: str) -> list[str]:
     seen: dict[str, None] = {}
     for m in TOKEN_RE.finditer(text):
         ref = m.group(0)
+        # Normalize bare-numeric refs from v6.10.0 template: FR1 → FR-1, NFR1 → NFR-1
+        ref = re.sub(r"^(FR|NFR)(\d)", r"\1-\2", ref)
         if ref != own_id and ref not in seen:
             seen[ref] = None
     return list(seen)
@@ -358,10 +369,15 @@ def find_prd(planning_artifacts: Path) -> Path | None:
 
 def find_spine(planning_artifacts: Path) -> Path | None:
     arch = planning_artifacts / "architecture"
-    if not arch.exists():
-        return None
-    candidates = sorted(arch.glob("*/ARCHITECTURE-SPINE.md"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return candidates[0] if candidates else None
+    if arch.exists():
+        candidates = sorted(arch.glob("*/ARCHITECTURE-SPINE.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            return candidates[0]
+    # Fallback: flat architecture.md (non-spine format; ADs may be absent)
+    flat = planning_artifacts / "architecture.md"
+    if flat.exists():
+        return flat
+    return None
 
 
 def find_spec(project_root: Path) -> Path | None:
@@ -566,11 +582,20 @@ def read_epics(epics_path: Path | None, project_root: Path) -> tuple[list[Entity
     stories: list[Entity] = []
     coverage_edges: list[tuple[str, str]] = []
 
-    # Coverage Map: - FR-n → E1a (anywhere; the table is under Requirements Inventory).
+    # Coverage Map: - FR-n → E1a (old) or - **FR-1** → Epic 2 (mixed) or
+    # FR1:  Epic 1 — text (v6.10.0 inline). Try both regexes.
     for line in lines:
-        m = COVERAGE_MAP_RE.match(line.strip())
+        stripped = line.strip()
+        m = COVERAGE_MAP_RE.match(stripped)
         if m:
-            coverage_edges.append((f"FR-{m.group('fr')}", m.group("epic")))
+            epic_id = m.group("epic")
+            if not epic_id.startswith("E"):
+                epic_id = f"E{epic_id}"
+            coverage_edges.append((f"FR-{m.group('fr')}", epic_id))
+            continue
+        m = COVERAGE_MAP_INLINE_RE.match(stripped)
+        if m:
+            coverage_edges.append((f"FR-{m.group('fr')}", f"E{m.group('epic_num')}"))
 
     # Epic entities: ### Epic E1a: title (the Epic List entries carry FRs covered / Needs).
     epic_bounds: list[tuple[str, str, int]] = []
@@ -578,11 +603,11 @@ def read_epics(epics_path: Path | None, project_root: Path) -> tuple[list[Entity
     for idx, line in enumerate(lines):
         em = EPIC_HEADING_RE.match(line)
         if em:
-            epic_bounds.append((em.group("id"), em.group("title").strip(), idx))
+            epic_bounds.append((f"E{em.group('id')}", em.group("title").strip(), idx))
             continue
         sm = STORY_HEADING_RE.match(line)
         if sm:
-            story_bounds.append((sm.group("id"), sm.group("title").strip(), idx))
+            story_bounds.append((f"E{sm.group('id')}", sm.group("title").strip(), idx))
 
     for i, (eid, title, start) in enumerate(epic_bounds):
         end = _next_bound(epic_bounds, i, story_bounds, lines)
@@ -684,6 +709,50 @@ def read_epics_nfrs(epics_path: Path | None, project_root: Path) -> list[Entity]
             )
         )
     return entities
+
+
+def read_inline_frs_nfrs(epics_path: Path | None, project_root: Path) -> tuple[list[Entity], list[Entity]]:
+    """FR and NFR entities from inline plain-text lines in epics.md.
+
+    The v6.10.0 BMad template inlines FRs/NFRs directly in epics.md as
+    ``FR1: text`` / ``NFR1: text`` plain lines (no markdown headings, no
+    hyphen in the ID). This reader handles that format; the PRD-based
+    ``read_prd_frs`` / ``read_epics_nfrs`` handle the older heading format.
+    Lines containing "Epic" are excluded — those are coverage-map entries.
+    """
+    if epics_path is None:
+        return [], []
+    source_path = _rel_to_project(epics_path, project_root)
+    frs: list[Entity] = []
+    nfrs: list[Entity] = []
+    for line in epics_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if "Epic" in stripped:
+            continue
+        fm = FR_INLINE_RE.match(stripped)
+        if fm:
+            fr_id = f"FR-{fm.group('id')}"
+            text = fm.group("text").strip()
+            title = text.split("—")[0].split("–")[0].strip()
+            title = title if len(title) <= 80 else _first_sentence(text)
+            frs.append(Entity(
+                id=fr_id, type="FR", title=title or fr_id, definition=text,
+                source_path=source_path, source_anchor=fr_id,
+                references=extract_all_refs(text, fr_id), raw_section=line,
+            ))
+            continue
+        nm = NFR_INLINE_RE.match(stripped)
+        if nm:
+            nfr_id = f"NFR-{nm.group('id')}"
+            text = nm.group("text").strip()
+            title = text.split("—")[0].split("–")[0].strip()
+            title = title if len(title) <= 80 else _first_sentence(text)
+            nfrs.append(Entity(
+                id=nfr_id, type="NFR", title=title or nfr_id, definition=text,
+                source_path=source_path, source_anchor=nfr_id,
+                references=extract_all_refs(text, nfr_id), raw_section=line,
+            ))
+    return frs, nfrs
 
 
 def read_protocol_streams(_protocol_path: Path | None, _project_root: Path) -> list[Entity]:
@@ -1229,10 +1298,18 @@ def _collect_entities(ctx: ProjectContext) -> tuple[list[Entity], dict[str, str]
     protocol_path = find_protocol_spec(ctx.project_root)
 
     frs = read_prd_frs(prd_path, ctx.project_root)
+    inline_frs, inline_nfrs = read_inline_frs_nfrs(epics_path, ctx.project_root)
+    # Inline FRs are a fallback when no PRD FRs exist (v6.10.0 template)
+    if not frs and inline_frs:
+        frs = inline_frs
+
     sms = read_prd_sms(prd_path, ctx.project_root)
     ads = read_spine_ads(spine_path, ctx.project_root)
     caps = read_spec_caps(spec_path, ctx.project_root)
     nfrs = read_epics_nfrs(epics_path, ctx.project_root)
+    # Inline NFRs are a fallback when no bulleted NFRs exist
+    if not nfrs and inline_nfrs:
+        nfrs = inline_nfrs
     epics, stories, coverage_edges = read_epics(epics_path, ctx.project_root)
     _streams = read_protocol_streams(protocol_path, ctx.project_root)  # deferred
 
