@@ -44,23 +44,23 @@ via source_sha + last_reviewed)>
 ### Referenced by
 
 ```dataview
-TABLE WITHOUT ID link(file.name, file.name) AS "Entity", type AS "Type", title AS "Title"
+LIST WITHOUT ID link(file.name, file.name)
 FROM [[]] AND "projects/<slug>"
 WHERE file.name != this.file.name
-SORT type ASC, file.name ASC
+SORT file.name ASC
 ```
 
 <!-- The Dataview query above is tier 1 — LIVE: every entity whose static
-References list links to this note appears here in an Entity/Type/Title
-table, sorted by type then name, with no regen needed. link(file.name,
-file.name) is Dataview's self-alias equivalent — the implicit file.link a
-bare LIST/TABLE would use is just as vulnerable to bare-link
-title-substitution as a raw [[ID]] wikilink. A TABLE with separate columns is
-used rather than a single concatenated LIST string because Dataview's `+`
-operator on a Link + String is not reliably defined (confirmed broken in
-practice — the title silently failed to render). Renders as a code block
-without the Dataview plugin; the native backlinks panel is the universal
-fallback.
+References list links to this note appears here, sorted by name, with no
+regen needed. link(file.name, file.name) is Dataview's self-alias
+equivalent — the implicit file.link a bare LIST/TABLE would use is just as
+vulnerable to bare-link title-substitution as a raw [[ID]] wikilink.
+Deliberately ID-only, no Type/Title columns: two attempts to add them both
+failed to render in practice — a concatenated LIST string (Dataview's `+`
+operator on a Link + String is not reliably defined) and a TABLE with
+`type`/`title` as separate columns (the columns silently stayed empty).
+Renders as a code block without the Dataview plugin; the native backlinks
+panel is the universal fallback.
 
 Sections below arrive in later milestones:
 

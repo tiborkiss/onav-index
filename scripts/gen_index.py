@@ -869,24 +869,24 @@ def emit_entity_note(
 def _referenced_by_query(project_subpath: str) -> str:
     """Live Dataview backlinks query, scoped to this project (sealed silos).
 
-    Renders each backlink as an "Entity | Type | Title" table, self-aliasing
-    the entity link (``link(file.name, file.name)``) rather than Dataview's
-    implicit ``file.link`` — the latter is a bare link and gets rewritten by
+    A plain self-aliased LIST (``link(file.name, file.name)``, not Dataview's
+    implicit ``file.link``) — the latter is a bare link and gets rewritten by
     bare-wikilink title-substitution plugins (Front Matter Title, Title As
-    Link Text) the same way a raw ``[[ID]]`` markdown link would. A TABLE with
-    separate columns, not a single concatenated ``LIST`` string, because
-    Dataview's ``+`` operator on a Link + String is not reliably defined —
-    confirmed broken in practice (the title silently failed to render).
-    Sorted by type then name rather than grouped, trading the M3
-    typed-grouping for simplicity — grouping + per-row titles needs
-    Dataview's row-array syntax, which adds fragility for a display concern.
+    Link Text) the same way a raw ``[[ID]]`` markdown link would.
+
+    Deliberately just the ID, no Type/Title columns: two rounds of trying to
+    surface them (concatenated LIST, then a TABLE) both failed to render in
+    practice — Dataview's ``+`` on Link+String isn't reliably defined, and the
+    TABLE columns silently didn't render `type`/`title` at all in the field.
+    Simplicity over features here; the native backlinks panel plus the static
+    References section (which does show titles) cover the rest.
     """
     return (
         "```dataview\n"
-        'TABLE WITHOUT ID link(file.name, file.name) AS "Entity", type AS "Type", title AS "Title"\n'
+        "LIST WITHOUT ID link(file.name, file.name)\n"
         f'FROM [[]] AND "{project_subpath}"\n'
         "WHERE file.name != this.file.name\n"
-        "SORT type ASC, file.name ASC\n"
+        "SORT file.name ASC\n"
         "```"
     )
 
@@ -929,6 +929,12 @@ def _render_project_index(
     Uses ONLY Dataview for entity references so the dashboard creates no static
     wiki-links — orphan/hotspot detection stays honest. Canonical facts (counts,
     coverage gaps) stay static; graph/time-derived facts are live Dataview.
+
+    Tables show only fields confirmed to render reliably as Dataview TABLE
+    columns (last_reviewed, an inlinks count) alongside the self-aliased
+    entity link. `type` and `title` as displayed TABLE columns silently failed
+    to render in practice — the "All entities" section dropped its Title
+    column and became a plain list for the same reason.
     """
     all_entities = [e for ents in entities_by_type.values() for e in ents]
     gaps = _compute_coverage_gaps(all_entities)
@@ -953,7 +959,7 @@ def _render_project_index(
     p.append("### Stale — oldest `last_reviewed` first")
     p.append("")
     p.append("```dataview")
-    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", type AS \"Type\", last_reviewed AS \"Last reviewed\"")
+    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", last_reviewed AS \"Last reviewed\"")
     p.append(f"FROM \"{folder}\"")
     p.append("WHERE type != null")
     p.append("SORT last_reviewed ASC")
@@ -972,7 +978,7 @@ def _render_project_index(
     p.append("### Hotspots — most-referenced")
     p.append("")
     p.append("```dataview")
-    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", type AS \"Type\", length(file.inlinks) AS \"Inbound\"")
+    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", length(file.inlinks) AS \"Inbound\"")
     p.append(f"FROM \"{folder}\"")
     p.append("WHERE type != null AND length(file.inlinks) > 0")
     p.append("SORT length(file.inlinks) DESC")
@@ -989,7 +995,7 @@ def _render_project_index(
     p.append("## All entities")
     p.append("")
     p.append("```dataview")
-    p.append("TABLE WITHOUT ID link(file.name, file.name) AS \"Entity\", title AS \"Title\"")
+    p.append("LIST WITHOUT ID link(file.name, file.name)")
     p.append(f"FROM \"{folder}\"")
     p.append("WHERE type != null")
     p.append("SORT type ASC, file.name ASC")
