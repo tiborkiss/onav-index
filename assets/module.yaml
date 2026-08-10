@@ -1,7 +1,7 @@
 code: onav
 name: "BMad Note-Graph Navigator"
 description: "Generates a derived Obsidian note-graph layer over a project's BMad canonical artifacts — every codified entity becomes a backlinked note, navigable in both directions."
-module_version: 0.1.0
+module_version: 0.2.0
 default_selected: false
 module_greeting: >
   The BMad Note-Graph Navigator (onav) is configured. To index this project's
@@ -20,8 +20,13 @@ onav_vault_root:
   example: "/home/tibor/vaults/tibor-vault"
 
 onav_projects_subfolder:
-  prompt: "Subfolder name under the vault root for indexed BMad projects"
+  prompt: "Subfolder name under the vault root for indexed BMad projects (accepts nesting, e.g. 'projects/YourOrg')"
   default: "projects"
+
+onav_project_slug:
+  prompt: "Exact-case override for this project's folder name under the vault (leave default to auto-derive a lowercase-kebab slug from the project name)"
+  default: ""
+  example: "ToF-Tracking-WS"
 
 onav_prefer_turbovault:
   prompt: "Prefer turbovault MCP for vault writes when available? (true → use --emit-mode manifest; falls back to direct file editing.)"

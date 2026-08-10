@@ -189,6 +189,74 @@ class TestTokenizer(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Project slug override (exact-case, org-nested layouts)
+# ---------------------------------------------------------------------------
+
+
+class TestProjectSlugOverride(unittest.TestCase):
+    def test_default_slug_is_lowercase_kebab(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            ctx = gen_index.resolve_context(root, str(Path(tmp) / "vault"))
+            self.assertEqual(ctx.project_slug, "fixture")
+
+    def test_cli_override_preserves_exact_case(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            ctx = gen_index.resolve_context(
+                root, str(Path(tmp) / "vault"), project_slug_override="ToF-Tracking-WS"
+            )
+            self.assertEqual(ctx.project_slug, "ToF-Tracking-WS")
+
+    def test_config_override_used_when_no_cli_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            (root / "_bmad" / "config.user.toml").write_text(
+                '[modules.onav]\nonav_project_slug = "ToF-Tracking-WS"\n', encoding="utf-8"
+            )
+            ctx = gen_index.resolve_context(root, str(Path(tmp) / "vault"))
+            self.assertEqual(ctx.project_slug, "ToF-Tracking-WS")
+
+    def test_cli_override_wins_over_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            (root / "_bmad" / "config.user.toml").write_text(
+                '[modules.onav]\nonav_project_slug = "from-config"\n', encoding="utf-8"
+            )
+            ctx = gen_index.resolve_context(
+                root, str(Path(tmp) / "vault"), project_slug_override="from-cli"
+            )
+            self.assertEqual(ctx.project_slug, "from-cli")
+
+    def test_nested_projects_subfolder_combines_with_slug_for_org_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            (root / "_bmad" / "config.user.toml").write_text(
+                '[modules.onav]\nonav_projects_subfolder = "projects/BlendArtis"\n', encoding="utf-8"
+            )
+            ctx = gen_index.resolve_context(
+                root, str(Path(tmp) / "vault"), project_slug_override="ToF-Tracking-WS"
+            )
+            self.assertEqual(
+                ctx.project_dir, Path(tmp) / "vault" / "projects" / "BlendArtis" / "ToF-Tracking-WS"
+            )
+
+    def test_path_traversal_in_override_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            with self.assertRaises(SystemExit):
+                gen_index.resolve_context(
+                    root, str(Path(tmp) / "vault"), project_slug_override="../../etc"
+                )
+
+
+# ---------------------------------------------------------------------------
 # Readers
 # ---------------------------------------------------------------------------
 

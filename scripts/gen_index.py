@@ -265,7 +265,9 @@ def _expand_root(value: str, project_root: Path) -> Path:
     return Path(value)
 
 
-def resolve_context(project_root: Path, vault_root_override: str | None) -> ProjectContext:
+def resolve_context(
+    project_root: Path, vault_root_override: str | None, project_slug_override: str | None = None
+) -> ProjectContext:
     project_root = project_root.resolve()
     config = _read_bmad_config(project_root)
 
@@ -289,9 +291,17 @@ def resolve_context(project_root: Path, vault_root_override: str | None) -> Proj
         )
     vault_root = Path(vault_root_str).expanduser().resolve()
 
+    # Project slug: exact-case override (CLI flag > onav_project_slug config) takes
+    # precedence over the auto-derived lowercase-kebab slug. Lets a project land at
+    # e.g. <vault>/<subfolder>/BlendArtis/ToF-Tracking-WS/ instead of the default
+    # <vault>/projects/tof-tracking-ws/ — combine with onav_projects_subfolder
+    # (which already accepts nested paths like "projects/BlendArtis") for org nesting.
+    slug_raw = project_slug_override or onav.get("onav_project_slug")
+    project_slug = _sanitize_slug_override(slug_raw) if slug_raw else _slugify(project_name)
+
     return ProjectContext(
         project_name=project_name,
-        project_slug=_slugify(project_name),
+        project_slug=project_slug,
         project_root=project_root,
         vault_root=vault_root,
         projects_subfolder=onav.get("onav_projects_subfolder", "projects"),
@@ -304,6 +314,16 @@ def resolve_context(project_root: Path, vault_root_override: str | None) -> Proj
 def _slugify(name: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-").lower()
     return slug or "project"
+
+
+def _sanitize_slug_override(raw: str) -> str:
+    """Accept an exact-case project slug override, guarding only against path
+    traversal (no '..' segments, no leading '/'). Case and hyphenation are
+    preserved verbatim — this is a trusted local override, not derived text."""
+    cleaned = raw.strip().strip("/")
+    if not cleaned or ".." in cleaned.split("/"):
+        raise SystemExit(f"onav-index: invalid project slug override: {raw!r}")
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -1292,7 +1312,7 @@ def _emit_all(
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    ctx = resolve_context(Path(args.project_root), args.vault_root)
+    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
 
     if ctx.project_dir.exists() and any(ctx.project_dir.iterdir()):
         msg = (
@@ -1368,7 +1388,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     and missing-note gaps (newly-referenced IDs with no note yet). The agent
     renders the suggestion and runs the follow-up on [All | None | IDs].
     """
-    ctx = resolve_context(Path(args.project_root), args.vault_root)
+    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
     entities, source_shas = _collect_entities(ctx)
     by_id = {e.id: e for e in entities}
 
@@ -1489,7 +1509,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     leftover WITH Personal notes is never deleted — it is flagged in the log
     for manual review. Only un-annotated generated cruft is pruned.
     """
-    ctx = resolve_context(Path(args.project_root), args.vault_root)
+    ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
     entities, source_shas = _collect_entities(ctx)
 
     if not entities:
@@ -1658,6 +1678,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", default=".", help="Project root containing _bmad/config.toml.")
     parser.add_argument("--vault-root", default=None, help="Obsidian vault root (overrides config).")
     parser.add_argument(
+        "--project-slug",
+        default=None,
+        help="Exact-case override for the project's leaf folder name under the vault "
+        "(overrides onav_project_slug config and the default lowercase-kebab slug). "
+        "Combine with onav_projects_subfolder (accepts nested paths, e.g. "
+        "'projects/BlendArtis') for an org-nested, case-preserving layout.",
+    )
+    parser.add_argument(
         "--emit-mode",
         choices=("file", "manifest"),
         default="file",
@@ -1709,7 +1737,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     # Resolve context (may raise on missing vault root — catch and report).
     try:
-        ctx = resolve_context(Path(args.project_root), args.vault_root)
+        ctx = resolve_context(Path(args.project_root), args.vault_root, args.project_slug)
     except SystemExit as e:
         checks.append({"check": "vault root configured", "status": "fail", "detail": str(e)})
         print(json.dumps({"status": "fail", "checks": checks}, indent=2))

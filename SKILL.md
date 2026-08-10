@@ -38,7 +38,8 @@ Config keys (under `[modules.onav]`):
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `onav_vault_root` | (none — required) | Absolute path to the Obsidian vault root. The emit path is `<vault_root>/<projects_subfolder>/<project-slug>/`. |
-| `onav_projects_subfolder` | `projects` | Subfolder under the vault root for indexed BMad projects. |
+| `onav_projects_subfolder` | `projects` | Subfolder under the vault root for indexed BMad projects. Accepts nesting (e.g. `projects/BlendArtis`) for an org-scoped layout. |
+| `onav_project_slug` | (auto-derived) | Exact-case override for this project's leaf folder name — bypasses the default lowercase-kebab slug (`ToF-Tracking-WS` → `tof-tracking-ws`). A `--project-slug` CLI flag overrides this per-invocation. Combine with a nested `onav_projects_subfolder` for `<vault>/projects/BlendArtis/ToF-Tracking-WS/`-style paths. |
 | `onav_prefer_turbovault` | `true` | Prefer turbovault MCP / manifest mode for vault writes when available; falls back to direct file editing. |
 | `onav_stale_days` | `14` | Days after which an unreviewed note counts as stale on the dashboard. |
 
@@ -114,4 +115,4 @@ Run `uv run scripts/gen_index.py --vault-root <vault> doctor` on first setup or 
 
 - Bare paths (`scripts/gen_index.py`, `assets/entity-note-template.md`) resolve from this skill's installed directory.
 - `{project-root}` → the project working directory. Forward slashes only.
-- The emit path is derived: `<onav_vault_root>/<onav_projects_subfolder>/<project-slug>/`, where `<project-slug>` is the kebab-cased `project_name` from `{project-root}/_bmad/config.toml`.
+- The emit path is derived: `<onav_vault_root>/<onav_projects_subfolder>/<project-slug>/`, where `<project-slug>` is the kebab-cased `project_name` from `{project-root}/_bmad/config.toml` — or the exact-case `onav_project_slug` / `--project-slug` override when set.

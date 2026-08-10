@@ -91,9 +91,19 @@ Config keys live under `[modules.onav]` (in `_bmad/config.yaml`, or `.toml` — 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `onav_vault_root` | *(required)* | Absolute path to your Obsidian vault root. Emit path: `<vault>/<projects_subfolder>/<project-slug>/`. |
-| `onav_projects_subfolder` | `projects` | Subfolder under the vault root for indexed BMad projects. |
+| `onav_projects_subfolder` | `projects` | Subfolder under the vault root for indexed BMad projects. Accepts nesting (e.g. `projects/YourOrg`) for an org-scoped layout. |
+| `onav_project_slug` | *(auto-derived)* | Exact-case override for this project's leaf folder name — the default auto-derives a lowercase-kebab slug (`ToF-Tracking-WS` → `tof-tracking-ws`). A `--project-slug` CLI flag overrides per-invocation. |
 | `onav_prefer_turbovault` | `true` | Prefer manifest mode / turbovault for vault writes; falls back to direct file editing. |
 | `onav_stale_days` | `14` | Days after which an unreviewed note counts as stale on the dashboard. |
+
+**Org-nested, case-preserving layout** — combine both to land at e.g. `<vault>/projects/BlendArtis/ToF-Tracking-WS/` instead of the default `<vault>/projects/tof-tracking-ws/`:
+
+```bash
+uv run scripts/gen_index.py --project-root . --vault-root /path/to/vault \
+  --project-slug "ToF-Tracking-WS" init --force
+# with onav_projects_subfolder = "projects/BlendArtis" set in config,
+# or pass it inline via config for a one-off test.
+```
 
 Project name + canonical paths are **not** config — they auto-resolve from the host project's BMad config.
 
