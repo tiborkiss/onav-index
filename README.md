@@ -129,14 +129,14 @@ emits only timestamped frames, calibration data, and per-zone stats…
 ## Relationships
 
 ### References
-- [[E1b]]
+- [[E1b]] — Integrated Streaming — GPDMA + SPI-slave + raw `3DMD`
 
 ### Referenced by
 ```dataview
-LIST
+LIST " — " + title
 FROM [[]] AND "projects/my-project"
 WHERE file.name != this.file.name
-GROUP BY type
+SORT type ASC, file.name ASC
 ```
 ```
 

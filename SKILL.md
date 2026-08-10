@@ -19,8 +19,8 @@ Act as a calm curator. This skill runs in the quiet moments between BMad milesto
 
 `init` emits **seven entity types** — FR, AD, SM, CAP, NFR, Epic, Story — parsed from all canonical files (prd, spine, spec, epics), each carrying the three-tier freshness model:
 
-- **Tier 1 (live):** `### Referenced by` is a Dataview query — backlinks grouped by source type, re-evaluated on every open. New entities linking to this one appear with no regen. (The native backlinks panel is the no-plugin fallback.)
-- **Tier 2 (static, drift-tracked):** the canonical-derived definition + `### References` (outgoing IDs cited in the entity's own section — AD `Binds`, SM `Validates`, CAP success parens, story ACs, plus Coverage-Map-derived FR→Epic links). `last_reviewed` + `source_sha` surface staleness.
+- **Tier 1 (live):** `### Referenced by` is a Dataview query — backlinks sorted by type, re-evaluated on every open, each shown as `[[ID]] — Title`. New entities linking to this one appear with no regen. (The native backlinks panel is the no-plugin fallback.)
+- **Tier 2 (static, drift-tracked):** the canonical-derived definition + `### References` (outgoing IDs cited in the entity's own section, rendered as `[[ID]] — Title` — AD `Binds`, SM `Validates`, CAP success parens, story ACs, plus Coverage-Map-derived FR→Epic links). `last_reviewed` + `source_sha` surface staleness.
 - **Tier 3 (manual, M4):** `## Personal notes` — preserved across every rewrite (init, init --force, update, refresh). This is the trust foundation: the user's annotations survive any regen, which is what makes the drift-acceptance model viable.
 
 Tag taxonomy (`onav/<type>`, `onav/stable`) in frontmatter drives graph coloring and tag/Dataview filtering. Streams (protocol-spec wire-format transactions) are deferred — their canonical structure is irregular and earns a dedicated pass.
@@ -90,7 +90,7 @@ Present the result as a before/after: how many created, updated, pruned, and kep
 The generated layer itself surfaces drift — the user opens the dashboard in Obsidian, no skill call needed:
 
 - **Project dashboard** (`<project>/index.md`): Dataview queries render live — staleness (oldest `last_reviewed` first), orphans (no inbound links), hotspots (most-referenced), a full entity table, plus statically-computed coverage gaps (FRs with no realizing Epic/Story, ADs that bind nothing). Open it after any BMad milestone to see what's drifted.
-- **Canvas** (`<project>/structure.canvas`): a curated epic → story → FR visual layout with `belongs to` / `realizes` edges. Regenerable; the user curates a separate canvas so curation survives regen.
+- **Canvas** (`<project>/structure.canvas`): a curated epic → story → FR visual layout with `belongs to` / `realizes` edges. Nodes are aliased-wikilink text labels (`ID — Title`), not live file embeds — readable at a glance in a normal-sized box, still fully clickable through to the real note. Regenerable; the user curates a separate canvas so curation survives regen.
 - **Graph coloring**: a one-time setup note is emitted to `<vault>/<projects>/_setup-notes/graph-coloring.md` (idempotent — never overwritten). See `references/graph-coloring.md` for the color mapping.
 
 **Orphan integrity:** the dashboard uses *only* Dataview for entity references (no static `[[entity]]` links), so it never registers as an inlink — orphan and hotspot detection stay honest. Coverage-gap IDs are shown as code spans, not links, for the same reason.

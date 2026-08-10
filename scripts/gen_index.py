@@ -759,13 +759,19 @@ def _extract_personal_notes(note_path: Path) -> str:
 
 
 def _render_entity_note(
-    entity: Entity, note_path: Path, source_sha: str, project_subpath: str
+    entity: Entity, note_path: Path, source_sha: str, project_subpath: str, title_by_id: dict[str, str]
 ) -> tuple[str, bool]:
     """Pure render: returns (note_content, has_personal_notes). Reads the
     existing note at ``note_path`` for Personal-notes preservation (reading is
     safe even in a turbovault-managed vault) but does NOT write. The write
     happens in emit_entity_note (file mode) or is left to the agent applying
     the manifest (manifest mode, via turbovault MCP).
+
+    ``title_by_id`` (id -> title, built from ALL current entities) lets each
+    reference render as ``[[FR-4]] — Stable bridge upstream contract`` instead
+    of a bare ID — the ID stays the literal link target (unambiguous in raw
+    markdown), the title is plain text appended on the same line. A reference
+    to an ID with no known title (a missing-note gap) renders as a bare link.
     """
     # M4 trust foundation: read the existing note's Personal notes BEFORE
     # regenerating, then re-append verbatim. Universal across init/update/refresh.
@@ -813,7 +819,8 @@ def _render_entity_note(
         parts.append("### References")
         parts.append("")
         for ref in outgoing:
-            parts.append(f"- [[{ref}]]")
+            ref_title = title_by_id.get(ref)
+            parts.append(f"- [[{ref}]] — {ref_title}" if ref_title else f"- [[{ref}]]")
         parts.append("")
         parts.append("### Referenced by")
         parts.append("")
@@ -835,7 +842,9 @@ def _render_entity_note(
     return "\n".join(parts) + "\n", bool(personal_notes)
 
 
-def emit_entity_note(entity: Entity, type_dir: Path, source_sha: str, project_subpath: str) -> Path:
+def emit_entity_note(
+    entity: Entity, type_dir: Path, source_sha: str, project_subpath: str, title_by_id: dict[str, str]
+) -> Path:
     """File mode: render one entity note and write it. Returns the note path.
 
     Three-tier freshness: Tier 1 (live Dataview 'Referenced by'), Tier 2 (static
@@ -845,7 +854,7 @@ def emit_entity_note(entity: Entity, type_dir: Path, source_sha: str, project_su
     """
     type_dir.mkdir(parents=True, exist_ok=True)
     note_path = type_dir / f"{entity.id}.md"
-    content, _ = _render_entity_note(entity, note_path, source_sha, project_subpath)
+    content, _ = _render_entity_note(entity, note_path, source_sha, project_subpath, title_by_id)
     note_path.write_text(content, encoding="utf-8")
     return note_path
 
@@ -853,16 +862,18 @@ def emit_entity_note(entity: Entity, type_dir: Path, source_sha: str, project_su
 def _referenced_by_query(project_subpath: str) -> str:
     """Live Dataview backlinks query, scoped to this project (sealed silos).
 
-    GROUP BY type renders backlinks as typed relationship lists: the AD group is
-    'governing ADs', the Story/Epic group is 'realizers', etc. Scoped to the
-    project folder so cross-project vaults don't bleed into one another.
+    Renders each backlink as ``ID — Title`` (via ``LIST " — " + title``),
+    matching the static References section's format. Sorted by type then name
+    rather than grouped, trading the M3 typed-grouping for simplicity and
+    title-visibility — grouping + per-row titles needs Dataview's row-array
+    syntax, which adds fragility for a display-only concern.
     """
     return (
         "```dataview\n"
-        "LIST\n"
+        'LIST " — " + title\n'
         f'FROM [[]] AND "{project_subpath}"\n'
         "WHERE file.name != this.file.name\n"
-        "GROUP BY type\n"
+        "SORT type ASC, file.name ASC\n"
         "```"
     )
 
@@ -1002,24 +1013,35 @@ _CANVAS_COLORS = {"Epic": "6", "Story": "4", "FR": "5"}  # purple, green, cyan
 
 def _render_canvas(entities: list[Entity], project_subpath: str) -> str | None:
     """Pure render of the Canvas JSON (epic → story → FR layout). Returns None
-    if there are no epic/story/FR entities to lay out."""
+    if there are no epic/story/FR entities to lay out.
+
+    Nodes are ``type: "text"`` containing an aliased wikilink (``[[E6.5|E6.5 —
+    title]]``) rather than ``type: "file"`` embeds. A file-embed renders the
+    ENTIRE note (frontmatter, definition, Relationships, Dataview block) inside
+    a small box — dense and mostly unreadable without zooming. A text node
+    shows exactly the short label, stays fully clickable/navigable to the real
+    note (Canvas references don't register as Dataview/backlink inlinks either
+    way, so this trades nothing on the orphan-detection front), and needs a
+    smaller box to be fully readable.
+    """
     epics = sorted([e for e in entities if e.type == "Epic"], key=lambda e: e.id)
     stories = sorted([e for e in entities if e.type == "Story"], key=lambda e: e.id)
     frs = sorted([e for e in entities if e.type == "FR"], key=lambda e: e.id)
     if not (epics or stories or frs):
         return None
 
-    node_w, node_h, row_h = 280, 60, 90
-    epic_x, story_x, fr_x = 0, 450, 900
+    node_w, node_h, row_h = 340, 100, 130
+    epic_x, story_x, fr_x = 0, 520, 1040
 
     nodes: list[dict] = []
     by_node: dict[str, dict] = {}
 
     def _add(ent: Entity, x: int, idx: int) -> None:
+        label = f"{ent.id} — {ent.title}".replace("|", "-").replace("]]", ")")
         node = {
             "id": ent.id,
-            "type": "file",
-            "file": f"{project_subpath}/{ent.type}/{ent.id}.md",
+            "type": "text",
+            "text": f"[[{ent.id}|{label}]]",
             "x": x,
             "y": idx * row_h,
             "width": node_w,
@@ -1207,11 +1229,13 @@ def _collect_entities(ctx: ProjectContext) -> tuple[list[Entity], dict[str, str]
 
 def _build_manifest(
     ctx: ProjectContext,
-    entities: list[Entity],
+    write_entities: list[Entity],
+    all_entities: list[Entity],
     source_shas: dict[str, str],
     by_type: dict[str, list[Entity]],
     stats: dict[str, int],
     project_subpath: str,
+    title_by_id: dict[str, str],
     *,
     deletes: list[str] | None = None,
     refresh_log_content: str | None = None,
@@ -1219,13 +1243,15 @@ def _build_manifest(
     """Build a write manifest (no file writes) for the agent to apply via
     turbovault MCP (or any vault-aware writer). Personal notes are already
     preserved in each note's content — the agent applies full-content overwrites.
+    ``write_entities`` are the notes actually written (subset for update); the
+    Canvas always renders from ``all_entities`` (the full current graph).
     """
     writes: list[dict] = []
     notes_with_personal = 0
-    for ent in sorted(entities, key=lambda e: (e.type, e.id)):
+    for ent in sorted(write_entities, key=lambda e: (e.type, e.id)):
         note_path = ctx.project_dir / ent.type / f"{ent.id}.md"
         sha = source_shas.get(ent.source_path, "") or _sha_for_source(ent.source_path, ctx.project_root)
-        content, has_pn = _render_entity_note(ent, note_path, sha, project_subpath)
+        content, has_pn = _render_entity_note(ent, note_path, sha, project_subpath, title_by_id)
         if has_pn:
             notes_with_personal += 1
         writes.append({
@@ -1241,8 +1267,8 @@ def _build_manifest(
         "kind": "dashboard",
         "content": _render_project_index(by_type, ctx.project_name, project_subpath),
     })
-    # Canvas (JSON asset)
-    canvas = _render_canvas(entities, project_subpath)
+    # Canvas (JSON asset) — always the full graph, not just write_entities.
+    canvas = _render_canvas(all_entities, project_subpath)
     if canvas is not None:
         writes.append({
             "path": f"{project_subpath}/structure.canvas",
@@ -1296,7 +1322,8 @@ def _build_manifest(
 def _emit_all(
     ctx: ProjectContext,
     args: argparse.Namespace,
-    entities: list[Entity],
+    write_entities: list[Entity],
+    all_entities: list[Entity],
     source_shas: dict[str, str],
     by_type: dict[str, list[Entity]],
     stats: dict[str, int],
@@ -1307,19 +1334,27 @@ def _emit_all(
     """Emit all artifacts. Returns None in file mode (written to disk) or the
     manifest dict in manifest mode (caller prints it). Shared by init/update/
     refresh so the manifest stays consistent across subcommands.
+
+    ``write_entities`` are the notes actually (re)written — the full set for
+    init/refresh, but only the changed subset for update. ``all_entities`` is
+    always the complete current graph: used for the title lookup (a changed
+    note may reference entities outside the written subset) and for the Canvas
+    (which must always show the full epic/story/FR graph, not just what an
+    `update` call happened to touch).
     """
     project_subpath = f"{ctx.projects_subfolder}/{ctx.project_slug}"
+    title_by_id = {e.id: e.title for e in all_entities}
     if args.emit_mode == "manifest":
         return _build_manifest(
-            ctx, entities, source_shas, by_type, stats, project_subpath,
+            ctx, write_entities, all_entities, source_shas, by_type, stats, project_subpath, title_by_id,
             deletes=delete_paths, refresh_log_content=refresh_log_content,
         )
     # File mode
-    for ent in entities:
+    for ent in write_entities:
         sha = source_shas.get(ent.source_path, "") or _sha_for_source(ent.source_path, ctx.project_root)
-        emit_entity_note(ent, ctx.project_dir / ent.type, sha, project_subpath)
+        emit_entity_note(ent, ctx.project_dir / ent.type, sha, project_subpath, title_by_id)
     emit_project_index(ctx.project_dir, by_type, ctx.project_name, project_subpath)
-    emit_canvas(ctx.project_dir, entities, project_subpath)
+    emit_canvas(ctx.project_dir, all_entities, project_subpath)
     emit_vault_root_moc(ctx.vault_projects_root, ctx.project_slug, ctx.project_name, stats)
     emit_graph_coloring_note(ctx.vault_projects_root)
     if refresh_log_content is not None:
@@ -1373,7 +1408,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2))
         return 0
 
-    manifest = _emit_all(ctx, args, entities, source_shas, by_type, stats)
+    manifest = _emit_all(ctx, args, entities, entities, source_shas, by_type, stats)
     if manifest is not None:
         manifest["subcommand"] = "init"
         print(json.dumps(manifest, indent=2))
@@ -1469,7 +1504,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     # 4. Emit. Manifest mode carries only the CHANGED notes + the full dashboard/
     #    MOC/canvas; file mode writes the same set directly.
     changed_entities = [by_id[eid] for eid in to_refresh if eid in by_id]
-    manifest = _emit_all(ctx, args, changed_entities, source_shas, by_type, stats)
+    manifest = _emit_all(ctx, args, changed_entities, entities, source_shas, by_type, stats)
     if manifest is not None:
         manifest.update({
             "subcommand": "update",
@@ -1602,7 +1637,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
         return 0
 
     manifest = _emit_all(
-        ctx, args, entities, source_shas, by_type, stats,
+        ctx, args, entities, entities, source_shas, by_type, stats,
         refresh_log_content=refresh_log_content, delete_paths=pruned_paths,
     )
     log_path = None

@@ -26,24 +26,28 @@ via source_sha + last_reviewed)>
 
 ### References
 
-- [[<other-entity-ID>]]   (outgoing — IDs cited in THIS entity's canonical
-                          section. Static, because it is canonical-derived and
-                          only changes on regen.)
+- [[<other-entity-ID>]] — <other entity's title>   (outgoing — IDs cited in
+                          THIS entity's canonical section. The ID stays the
+                          literal link target; the title is plain text
+                          appended on the same line, looked up from the full
+                          current entity set. A reference to an ID with no
+                          known title — a missing-note gap — renders bare.
+                          Static, because it is canonical-derived and only
+                          changes on regen.)
 
 ### Referenced by
 
 ```dataview
-LIST
+LIST " — " + title
 FROM [[]] AND "projects/<slug>"
 WHERE file.name != this.file.name
-GROUP BY type
+SORT type ASC, file.name ASC
 ```
 
 <!-- The Dataview query above is tier 1 — LIVE: every entity whose static
-References list links to this note appears here, grouped by type, with no
-regen needed. The AD group ≈ "governing ADs", the Story/Epic group ≈
-"realizers", etc. Renders as a code block without the Dataview plugin; the
-native backlinks panel is the universal fallback.
+References list links to this note appears here as "ID — Title", sorted by
+type then name, with no regen needed. Renders as a code block without the
+Dataview plugin; the native backlinks panel is the universal fallback.
 
 Sections below arrive in later milestones:
 

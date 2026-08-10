@@ -435,22 +435,40 @@ class TestEmission(unittest.TestCase):
             source_path="prd.md", source_anchor="FR-1",
             references=["FR-2", "E1a"],
         )
+        title_by_id = {"FR-2": "Independent crop-window configuration", "E1a": "Foundation"}
         with tempfile.TemporaryDirectory() as tmp:
             note = gen_index.emit_entity_note(
-                ent, Path(tmp) / "FR", source_sha="abc", project_subpath="projects/proj"
+                ent, Path(tmp) / "FR", source_sha="abc", project_subpath="projects/proj",
+                title_by_id=title_by_id,
             )
             text = note.read_text(encoding="utf-8")
-            # Tier 2: outgoing references are static wiki-links.
+            # Tier 2: outgoing references are static wiki-links, ID + title on the same line.
             self.assertIn("## Relationships", text)
             self.assertIn("### References", text)
-            self.assertIn("[[FR-2]]", text)
-            self.assertIn("[[E1a]]", text)
-            # Tier 1: incoming is a live Dataview query, scoped to the project.
+            self.assertIn("[[FR-2]] — Independent crop-window configuration", text)
+            self.assertIn("[[E1a]] — Foundation", text)
+            # Tier 1: incoming is a live Dataview query, scoped to the project, showing titles too.
             self.assertIn("```dataview", text)
             self.assertIn('FROM [[]] AND "projects/proj"', text)
-            self.assertIn("GROUP BY type", text)
+            self.assertIn('LIST " — " + title', text)
             # No static incoming list remains (replaced by Dataview).
             self.assertNotIn("- [[AD-1]]", text)
+
+    def test_reference_without_known_title_stays_bare(self) -> None:
+        # A missing-note gap (referenced ID with no title yet known) must not
+        # crash or render a bogus suffix — just the bare link, as before.
+        ent = gen_index.Entity(
+            id="FR-1", type="FR", title="Sensor boot", definition="d",
+            source_path="prd.md", source_anchor="FR-1", references=["FR-99"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            note = gen_index.emit_entity_note(
+                ent, Path(tmp) / "FR", source_sha="abc", project_subpath="projects/proj",
+                title_by_id={},
+            )
+            text = note.read_text(encoding="utf-8")
+            self.assertIn("- [[FR-99]]\n", text)
+            self.assertNotIn("[[FR-99]] —", text)
 
     def test_note_tag_taxonomy_in_frontmatter(self) -> None:
         ent = gen_index.Entity(
@@ -460,7 +478,8 @@ class TestEmission(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             note = gen_index.emit_entity_note(
-                ent, Path(tmp) / "AD", source_sha="abc", project_subpath="projects/p"
+                ent, Path(tmp) / "AD", source_sha="abc", project_subpath="projects/p",
+                title_by_id={},
             )
             text = note.read_text(encoding="utf-8")
             self.assertIn("onav/AD", text)  # type tag
@@ -474,7 +493,8 @@ class TestEmission(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             note = gen_index.emit_entity_note(
-                ent, Path(tmp) / "FR", source_sha="abc", project_subpath="projects/p"
+                ent, Path(tmp) / "FR", source_sha="abc", project_subpath="projects/p",
+                title_by_id={},
             )
             text = note.read_text(encoding="utf-8")
             # Orphan-friendly: still surfaces a live Referenced by query.
@@ -490,7 +510,8 @@ class TestEmission(unittest.TestCase):
 class TestPersonalNotesPreservation(unittest.TestCase):
     def _emit(self, ent, tmp, project_subpath="projects/p"):
         return gen_index.emit_entity_note(
-            ent, Path(tmp) / ent.type, source_sha="abc", project_subpath=project_subpath
+            ent, Path(tmp) / ent.type, source_sha="abc", project_subpath=project_subpath,
+            title_by_id={},
         )
 
     def test_personal_notes_survive_regen(self) -> None:
@@ -551,6 +572,23 @@ class TestPersonalNotesPreservation(unittest.TestCase):
 
 
 class TestUpdate(unittest.TestCase):
+    def test_update_regenerates_canvas_with_full_graph_not_just_changed_entity(self) -> None:
+        # Regression: the canvas must always show the full epic/story/FR graph,
+        # even though `update` only rewrites the requested entity's own note.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            vault = Path(tmp) / "vault"
+            gen_index.main(["--project-root", str(root), "--vault-root", str(vault), "init", "--force"])
+            canvas_path = vault / "projects" / "fixture" / "structure.canvas"
+            before_ids = {n["id"] for n in json.loads(canvas_path.read_text(encoding="utf-8"))["nodes"]}
+
+            gen_index.main(["--project-root", str(root), "--vault-root", str(vault), "update", "FR-1"])
+            after_ids = {n["id"] for n in json.loads(canvas_path.read_text(encoding="utf-8"))["nodes"]}
+
+            self.assertEqual(before_ids, after_ids)
+            self.assertIn("E2.1", after_ids)  # a node untouched by this update
+
     def test_update_refreshes_and_reports_backlinks_and_preserves_notes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "proj"
@@ -648,7 +686,7 @@ class TestDashboard(unittest.TestCase):
 
 
 class TestCanvas(unittest.TestCase):
-    def test_canvas_emits_three_columns_with_edges(self) -> None:
+    def test_canvas_nodes_are_readable_text_labels_not_dense_file_embeds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "proj"
             _seed_project(root)
@@ -657,16 +695,22 @@ class TestCanvas(unittest.TestCase):
             canvas_path = vault / "projects" / "fixture" / "structure.canvas"
             self.assertTrue(canvas_path.exists())
             canvas = json.loads(canvas_path.read_text(encoding="utf-8"))
-            node_types = {n["file"].split("/")[-2] for n in canvas["nodes"]}
-            self.assertIn("Epic", node_types)
-            self.assertIn("Story", node_types)
-            self.assertIn("FR", node_types)
+            by_id = {n["id"]: n for n in canvas["nodes"]}
+            # Known fixture IDs across all three columns.
+            for nid in ("E1a", "E2", "E1a.1", "E2.1", "FR-1", "FR-8b"):
+                self.assertIn(nid, by_id)
+                node = by_id[nid]
+                # Text node with an aliased wikilink (clickable, navigates to the
+                # real note) rather than a dense type:"file" live embed.
+                self.assertEqual(node["type"], "text")
+                self.assertTrue(node["text"].startswith(f"[[{nid}|{nid} — "))
+                self.assertNotIn("file", node)
+                # Boxes are big enough that the label is visible without zooming.
+                self.assertGreaterEqual(node["width"], 300)
+                self.assertGreaterEqual(node["height"], 80)
             # Edges carry the 'belongs to' (story->epic) and/or 'realizes' labels.
             labels = {e.get("label") for e in canvas["edges"]}
             self.assertIn("belongs to", labels)
-            # Every node references a real file path under the project.
-            for n in canvas["nodes"]:
-                self.assertTrue(n["file"].startswith("projects/fixture/"))
 
 
 class TestGraphColoringNote(unittest.TestCase):
