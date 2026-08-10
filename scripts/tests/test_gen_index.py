@@ -189,6 +189,41 @@ class TestTokenizer(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# BMad config layer precedence (4-layer resolver: base < custom, team < personal)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigLayerPrecedence(unittest.TestCase):
+    def test_custom_user_wins_over_base_and_custom_team(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            (root / "_bmad" / "config.toml").write_text(
+                (root / "_bmad" / "config.toml").read_text(encoding="utf-8")
+                + '\n[modules.onav]\nonav_vault_root = "/base"\n',
+                encoding="utf-8",
+            )
+            custom_dir = root / "_bmad" / "custom"
+            custom_dir.mkdir()
+            (custom_dir / "config.toml").write_text(
+                '[modules.onav]\nonav_vault_root = "/team-custom"\n', encoding="utf-8"
+            )
+            (custom_dir / "config.user.toml").write_text(
+                '[modules.onav]\nonav_vault_root = "/personal-custom"\n', encoding="utf-8"
+            )
+            ctx = gen_index.resolve_context(root, None)
+            self.assertEqual(str(ctx.vault_root), "/personal-custom")
+
+    def test_custom_dir_is_optional(self) -> None:
+        # No _bmad/custom/ at all — must not error, falls through to base config.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "proj"
+            _seed_project(root)
+            ctx = gen_index.resolve_context(root, str(Path(tmp) / "vault"))
+            self.assertEqual(ctx.vault_root, (Path(tmp) / "vault").resolve())
+
+
+# ---------------------------------------------------------------------------
 # Project slug override (exact-case, org-nested layouts)
 # ---------------------------------------------------------------------------
 

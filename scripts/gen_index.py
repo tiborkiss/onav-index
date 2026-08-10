@@ -187,24 +187,36 @@ def _rel_to_project(path: Path, project_root: Path) -> str:
 
 
 def _read_bmad_config(project_root: Path) -> dict:
-    """Read BMad config from both TOML (installer-managed) and YAML (module-
-    builder/standalone-setup-managed) sources, deep-merged.
+    """Read BMad config across all four resolver layers, deep-merged, later wins.
 
-    This project's BMad installer writes config.toml; the standalone module
-    setup (merge-config.py) writes config.yaml. onav reads whichever exists so
-    its own [modules.onav] settings (written by setup to the yaml files) are
-    found regardless of which BMad config format the host project uses.
+    Matches BMad's actual convention: ``config.toml`` (installer base, team) <
+    ``config.user.toml`` (installer base, personal) < ``custom/config.toml``
+    (team override, committed, "never touched by the installer") <
+    ``custom/config.user.toml`` (personal override, gitignored, "wins over both
+    base config and team overrides"). Each layer is tried as both TOML
+    (installer / custom convention) and YAML (this module's own standalone
+    setup via merge-config.py), so onav's settings are found wherever they were
+    written. custom/config.user.toml is the durable home for a personal path
+    like onav_vault_root — it survives every `bmad install` re-run.
     """
     merged: dict = {}
-    # TOML (installer path) — hand-parsed subset.
-    for name in ("_bmad/config.toml", "_bmad/config.user.toml"):
+    layers = (
+        ("_bmad/config.toml", "toml"),
+        ("_bmad/config.yaml", "yaml"),
+        ("_bmad/config.user.toml", "toml"),
+        ("_bmad/config.user.yaml", "yaml"),
+        ("_bmad/custom/config.toml", "toml"),
+        ("_bmad/custom/config.yaml", "yaml"),
+        ("_bmad/custom/config.user.toml", "toml"),
+        ("_bmad/custom/config.user.yaml", "yaml"),
+    )
+    for name, fmt in layers:
         path = project_root / name
-        if path.exists():
+        if not path.exists():
+            continue
+        if fmt == "toml":
             _merge_toml_subset(merged, path.read_text(encoding="utf-8"))
-    # YAML (standalone-module setup path) — pyyaml.
-    for name in ("_bmad/config.yaml", "_bmad/config.user.yaml"):
-        path = project_root / name
-        if path.exists():
+        else:
             try:
                 data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             except yaml.YAMLError:
@@ -289,8 +301,9 @@ def resolve_context(
     if not vault_root_str:
         raise SystemExit(
             "onav-index: no vault root configured. Pass --vault-root PATH, or set "
-            "'onav_vault_root' under [modules.onav] in {project-root}/_bmad/config.user.yaml"
-            " (or .toml), or run onav-index with `setup`."
+            "'onav_vault_root' under [modules.onav] in {project-root}/_bmad/custom/config.user.toml"
+            " (personal, gitignored, durable across installer re-runs — or config.user.yaml/.toml),"
+            " or run onav-index with `setup`."
         )
     vault_root = Path(vault_root_str).expanduser().resolve()
 
