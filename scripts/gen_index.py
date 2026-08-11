@@ -827,6 +827,25 @@ def _extract_personal_notes(note_path: Path) -> str:
     return text[m.start():].rstrip() + "\n"
 
 
+def _ref_link_target(ref: str, project_subpath: str) -> str:
+    """Path-qualified wikilink target for cross-project disambiguation.
+
+    Bare ``[[FR-1]]`` resolves to ANY file named ``FR-1.md`` in the vault.
+    With multiple BMad projects sharing the same ID scheme, Obsidian picks
+    the wrong file. Path-qualifying to ``projects/<org>/<proj>/FR/FR-1``
+    makes the link unambiguous while the alias keeps the display text clean.
+    """
+    if re.match(r"E\d+[a-z]?\.\d+", ref):
+        type_dir = "Story"
+    elif re.match(r"E\d+[a-z]?$", ref):
+        type_dir = "Epic"
+    elif ref.startswith(("FR-", "AD-", "SM-", "CAP-", "NFR-")):
+        type_dir = ref.split("-")[0]
+    else:
+        return ref
+    return f"{project_subpath}/{type_dir}/{ref}"
+
+
 def _render_entity_note(
     entity: Entity, note_path: Path, source_sha: str, project_subpath: str, title_by_id: dict[str, str]
 ) -> tuple[str, bool]:
@@ -889,14 +908,13 @@ def _render_entity_note(
         parts.append("")
         for ref in outgoing:
             ref_title = title_by_id.get(ref)
-            # Explicit self-alias [[ID|ID]], not bare [[ID]]: some Obsidian
-            # plugins (Front Matter Title, Title As Link Text) rewrite BARE
-            # wikilinks to show the target's frontmatter title instead of the
-            # ID — by design they leave already-aliased links alone. Titles
-            # containing a colon (common here) render visibly broken under
-            # that substitution, so force the alias to keep "ID" the display
-            # text regardless of what plugins the vault has installed.
-            parts.append(f"- [[{ref}|{ref}]] — {ref_title}" if ref_title else f"- [[{ref}|{ref}]]")
+            # Path-qualified link + explicit alias: [[projects/.../FR/FR-1|FR-1]].
+            # Path qualification prevents cross-project resolution when multiple
+            # projects share the same entity IDs (FR-1.md exists in each).
+            # The alias keeps "ID" as display text regardless of bare-link
+            # title-substitution plugins (Front Matter Title, Title As Link Text).
+            target = _ref_link_target(ref, project_subpath)
+            parts.append(f"- [[{target}|{ref}]] — {ref_title}" if ref_title else f"- [[{target}|{ref}]]")
         parts.append("")
         parts.append("### Referenced by")
         parts.append("")

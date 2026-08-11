@@ -442,13 +442,14 @@ class TestEmission(unittest.TestCase):
                 title_by_id=title_by_id,
             )
             text = note.read_text(encoding="utf-8")
-            # Tier 2: outgoing references are static wiki-links, self-aliased
-            # [[ID|ID]] (immune to bare-link title-substitution plugins), with
-            # the title appended as plain text on the same line.
+            # Tier 2: outgoing references are path-qualified wiki-links with
+            # explicit alias: [[projects/proj/FR/FR-2|FR-2]] — path qualification
+            # prevents cross-project resolution when multiple projects share the
+            # same entity IDs. The alias keeps "ID" as display text.
             self.assertIn("## Relationships", text)
             self.assertIn("### References", text)
-            self.assertIn("[[FR-2|FR-2]] — Independent crop-window configuration", text)
-            self.assertIn("[[E1a|E1a]] — Foundation", text)
+            self.assertIn("[[projects/proj/FR/FR-2|FR-2]] — Independent crop-window configuration", text)
+            self.assertIn("[[projects/proj/Epic/E1a|E1a]] — Foundation", text)
             # Tier 1: incoming is a live Dataview LIST, scoped to the project,
             # self-aliased via link() for the same plugin-immunity reason —
             # kept deliberately simple (no Type/Title columns): both a
@@ -463,7 +464,7 @@ class TestEmission(unittest.TestCase):
 
     def test_reference_without_known_title_stays_bare(self) -> None:
         # A missing-note gap (referenced ID with no title yet known) must not
-        # crash or render a bogus suffix — just the bare link, as before.
+        # crash or render a bogus suffix — just the path-qualified link, no title.
         ent = gen_index.Entity(
             id="FR-1", type="FR", title="Sensor boot", definition="d",
             source_path="prd.md", source_anchor="FR-1", references=["FR-99"],
@@ -474,9 +475,9 @@ class TestEmission(unittest.TestCase):
                 title_by_id={},
             )
             text = note.read_text(encoding="utf-8")
-            # Still self-aliased (consistent, plugin-safe) even with no title to append.
-            self.assertIn("- [[FR-99|FR-99]]\n", text)
-            self.assertNotIn("[[FR-99|FR-99]] —", text)
+            # Path-qualified + aliased, no title suffix.
+            self.assertIn("- [[projects/proj/FR/FR-99|FR-99]]\n", text)
+            self.assertNotIn("[[projects/proj/FR/FR-99|FR-99]] —", text)
 
     def test_note_tag_taxonomy_in_frontmatter(self) -> None:
         ent = gen_index.Entity(
