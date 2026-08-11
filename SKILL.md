@@ -62,44 +62,78 @@ The generator has two emission modes (a global `--emit-mode {file, manifest}`, d
 
 ## How you work
 
-For every invocation, run the generator and let its JSON stdout drive what you say next. Don't reconstruct what the script already reports.
+The user's request drives everything — they should never need to know CLI flags. Parse intent, check config, run the script, apply via turbovault, report.
 
-### init — cold-start a project in the vault
+### Step 0 — Config detection (every invocation, before any command)
 
-Run `uv run scripts/gen_index.py --project-root {project-root} --vault-root <vault> init`. The script emits every derivable entity note, writes the project `index.md`, and updates the vault-root MOC. On a non-empty existing project dir it refuses without `--force` — surface that and confirm before passing `--force`. **Personal notes (`## Personal notes` sections) are preserved across every rewrite**, including `init --force`, so re-initializing an existing project is safe.
+1. Read `_bmad/custom/config.user.toml` for an existing `[modules.onav]` section with `onav_vault_root`.
+2. **If config exists and is complete** — proceed to the command. No user interaction needed.
+3. **If config is missing or incomplete** — derive what you can from the user's words, then ask for what's still missing:
+   - **Vault root**: if the user names a vault (e.g. "tibor-vault"), resolve it to an absolute path via `turbovault_list_vaults`. Otherwise ask: "Which Obsidian vault?"
+   - **Projects subfolder + slug**: if the user gives a target path (e.g. "in `/projects/TIBS-HOME/BL5340-Bridge/onav`"), split at the last segment — everything before is `onav_projects_subfolder`, the last segment is `onav_project_slug`. If not specified, ask: "Where in the vault should the notes live?"
+4. Write the resolved config to `_bmad/custom/config.user.toml`:
+   ```toml
+   [modules.onav]
+   onav_vault_root = "<absolute path>"
+   onav_projects_subfolder = "<subfolder>"
+   onav_project_slug = "<slug>"
+   ```
+5. Run `doctor` and report any `fail`/`warn` before proceeding.
 
-Present the result as the project's new map: how many entities, where they live, and the vault path to open. Offer to open the dashboard `index.md`.
+The script path resolves from this skill's installed directory — use the absolute path when calling from bash (e.g. `~/.agents/skills/onav-index/scripts/gen_index.py`).
 
-### update — targeted refresh with a suggestion list (the workhorse)
+### init — "index this project", "generate onav notes", "create the note graph"
 
-Run `uv run scripts/gen_index.py update <ID> [<ID>...]`. The script re-reads canonical, rewrites the named note(s) (preserving Personal notes, bumping `last_reviewed`), and prints a **suggestion list** as structured JSON plus a `suggestion_prompt` string ready to read to the user. Two parts:
+1. Run the generator in manifest mode:
+   ```bash
+   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest init --force
+   ```
+   (`--force` is safe — Personal notes are preserved across every rewrite.)
+2. Capture the JSON manifest from stdout.
+3. Chunk `manifest.writes` into batches of ~15 ops. Skip entries with `kind: "canvas"` (turbovault doesn't manage JSON assets — write that one directly to the filesystem if the vault permits, or skip it).
+4. Apply each batch via `turbovault_batch_execute(operations=<JSON array>)`. Operation shape: `{"type": "WriteNote", "path": <vault-relative-path>, "content": <full markdown>}`. One `batch_execute` = one git commit; never loop individual `turbovault_write_note` calls (each triggers its own commit — 100+ notes takes 9+ minutes and looks like a freeze).
+5. Report: entity counts by type, total notes written, dashboard path (`<vault>/<subfolder>/<slug>/index.md`).
 
-- **affected** — direct backlinks of what you just refreshed (other notes that cite it and may want refreshing too).
-- **gaps** — IDs the refreshed entity now references that have no note yet (new canonical content not yet indexed).
+### update — "update FR-4", "refresh AD-2 and SM-1", "re-index E2.5"
 
-Render the `suggestion_prompt` conversationally: *"Updated E2.5. Found 4 possibly-affected notes: AD-3, FR-2, E2.4, SM-1. Update [All | None | list of IDs]?"* Collect the answer and run the follow-up: `update <those IDs>` for "All"/list, or stop for "None". Each call does one level of crawl — iterating the conversation is how the recursion deepens. For headless one-shot cascading, `update <ID> --yes-all` refreshes the affected set in the same call. The dashboard + vault-root MOCs are auto-updated as the final step of every update.
+Targeted refresh by entity ID — the workhorse for keeping the graph in sync after canonical changes.
 
-### refresh — full regenerate-all with pruning
+1. Parse the entity IDs from the user's request.
+2. Run:
+   ```bash
+   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest update <ID> [<ID>...]
+   ```
+3. Apply the manifest via `turbovault_batch_execute` (same chunking as init). The manifest contains only the changed notes plus dashboard/MOC/canvas updates.
+4. Read the JSON output's `suggestion_prompt` and present it conversationally: *"Updated E2.5. Found 4 possibly-affected notes: AD-3, FR-2, E2.4, SM-1. Also FR-8b is referenced but has no note yet. Update [All | None | list of IDs]?"*
+5. If the user says "All" or lists IDs, run `update <those IDs>` and repeat from step 3. Each call does one level of backlink crawl — iterating the conversation deepens the recursion.
+6. For one-shot cascading without conversation: `update <ID> --yes-all`.
 
-Run `uv run scripts/gen_index.py refresh`. Heavy and infrequent. Regenerates every note from canonical (Personal notes preserved), then prunes leftover notes whose entity no longer exists in canonical, and writes a refresh-log to `<project>/_refresh-log-<timestamp>.md`.
+### refresh — "regenerate everything", "refresh the index", "full rebuild"
 
-**The trust foundation holds even in pruning:** a leftover that carries `## Personal notes` is *never* deleted — it is flagged in the refresh-log for manual review. Only un-annotated generated cruft is pruned. Use `--dry-run` to preview the prune decisions (what would be pruned vs. kept) before committing.
+1. Preview first with `--dry-run`:
+   ```bash
+   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest refresh --dry-run
+   ```
+2. Report what would be created/updated/pruned. **Surface any kept-annotated leftovers** — notes with `## Personal notes` whose entity is gone from canonical. The user decides whether to delete those manually; they are never auto-pruned.
+3. On confirmation, run without `--dry-run`.
+4. Apply the manifest via `turbovault_batch_execute`:
+   - `manifest.writes` → `{"type": "WriteNote", ...}` batches (same as init)
+   - `manifest.deletes` → `{"type": "DeleteNote", "path": <path>}` batches
+5. Report: created, updated, pruned, kept-annotated. Offer to open the refresh-log.
 
-Present the result as a before/after: how many created, updated, pruned, and kept-annotated. If there are kept-annotated leftovers, surface them — the user decides whether to delete those manually. Offer to open the refresh-log.
+### doctor — "check onav setup", "is onav configured?"
+
+Run `uv run <skill-dir>/scripts/gen_index.py --project-root . doctor`. Report each check as pass/fail/warn with detail. Always run this as part of Step 0 when writing new config.
 
 ## Passive drift navigation (no invocation)
 
 The generated layer itself surfaces drift — the user opens the dashboard in Obsidian, no skill call needed:
 
-- **Project dashboard** (`<project>/index.md`): Dataview queries render live — staleness (oldest `last_reviewed` first), orphans (no inbound links), hotspots (most-referenced), a full entity table, plus statically-computed coverage gaps (FRs with no realizing Epic/Story, ADs that bind nothing). Open it after any BMad milestone to see what's drifted.
-- **Canvas** (`<project>/structure.canvas`): a curated epic → story → FR visual layout with `belongs to` / `realizes` edges. Nodes are aliased-wikilink text labels (`ID — Title`), not live file embeds — readable at a glance in a normal-sized box, still fully clickable through to the real note. Regenerable; the user curates a separate canvas so curation survives regen.
-- **Graph coloring**: a one-time setup note is emitted to `<vault>/<projects>/_setup-notes/graph-coloring.md` (idempotent — never overwritten). See `references/graph-coloring.md` for the color mapping.
+- **Project dashboard** (`<project>/index.md`): Dataview queries render live — staleness (oldest `last_reviewed` first), orphans (no inbound links), hotspots (most-referenced), plus statically-computed coverage gaps (FRs with no realizing Epic/Story, ADs that bind nothing). Open it after any BMad milestone to see what's drifted.
+- **Canvas** (`<project>/structure.canvas`): a curated epic → story → FR visual layout with `belongs to` / `realizes` edges. Nodes are aliased-wikilink text labels, still fully clickable through to the real note. Regenerable; the user curates a separate canvas so curation survives regen.
+- **Graph coloring**: a one-time setup note is emitted to `<vault>/<projects>/_setup-notes/graph-coloring.md` (idempotent — never overwritten).
 
-**Orphan integrity:** the dashboard uses *only* Dataview for entity references (no static `[[entity]]` links), so it never registers as an inlink — orphan and hotspot detection stay honest. Coverage-gap IDs are shown as code spans, not links, for the same reason.
-
-### doctor — environment check
-
-Run `uv run scripts/gen_index.py --vault-root <vault> doctor` on first setup or when something looks off. It checks uv on PATH, the vault root exists, the projects subfolder, the Dataview plugin (warn, not fatal), that each canonical file resolves, and the `onav_prefer_turbovault` setting. Report any `fail`/`warn` to the user with the detail.
+**Orphan integrity:** the dashboard uses *only* Dataview for entity references (no static `[[entity]]` links), so it never registers as an inlink — orphan and hotspot detection stay honest.
 
 ## Tool dependencies
 
