@@ -58,7 +58,7 @@ The generator has two emission modes (a global `--emit-mode {file, manifest}`, d
 
 **Applying the manifest (full-content overwrite):** Personal notes are **already preserved** in each note's content (the script read the existing note and reconstructed it before emitting), so overwrite is safe — no SEARCH/REPLACE needed. For `manifest.deletes` (refresh pruning), call `turbovault_delete_note(path, confirm_path=path)`. The Canvas (`.canvas`) is a JSON asset turbovault may not manage — write it directly only if your vault permits non-note asset writes; otherwise skip it (the dashboard carries the navigability). For `init`, that's ~105 writes (one-time, cold start); for `update`, only the changed notes plus the dashboard/MOC/canvas (a handful — the workhorse advantage of manifest mode).
 
-**CRITICAL — batch the writes, never loop `turbovault_write_note`:** each individual `turbovault_write_note` call triggers its own atomic git commit (~5s per call); looping it across a 100+ entry manifest takes 9+ minutes and looks like a freeze. Instead, chunk `manifest.writes` into batches of ~15 ops and apply each batch via `turbovault_batch_execute(operations=<JSON array>)` — one transaction = one git commit per batch. The operation shape is `{"type": "WriteNote", "path": <path>, "content": <content>}`. Skip any `kind: "canvas"` entries (turbovault doesn't manage those). For very large chunks (>~50KB JSON), split further — MCP tool args have size limits.
+**CRITICAL — use `apply_manifest.py`, never loop `turbovault_write_note` or call `turbovault_batch_execute` through the MCP tool layer:** individual `turbovault_write_note` calls each trigger a separate git commit (~5s per call; 100+ notes = 9+ minute freeze). And `turbovault_batch_execute` through the MCP tool layer echoes the full content of every operation back in the response (~40 KB per 15-op batch enters the agent's context as useless echo). Instead, pipe the manifest through `scripts/apply_manifest.py` — it speaks turbovault's stdio MCP directly, chunks internally, applies each batch as one git commit, writes canvas entries to the filesystem, and prints only one summary line per batch. Vault root is read from the manifest or project config automatically.
 
 ## How you work
 
@@ -84,42 +84,47 @@ The script path resolves from this skill's installed directory — use the absol
 
 ### init — "index this project", "generate onav notes", "create the note graph"
 
-1. Run the generator in manifest mode:
+1. Run the generator and apply in one pipe:
    ```bash
-   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest init --force
+   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest init --force \
+     | uv run <skill-dir>/scripts/apply_manifest.py -
    ```
    (`--force` is safe — Personal notes are preserved across every rewrite.)
-2. Capture the JSON manifest from stdout.
-3. Chunk `manifest.writes` into batches of ~15 ops. Skip entries with `kind: "canvas"` (turbovault doesn't manage JSON assets — write that one directly to the filesystem if the vault permits, or skip it).
-4. Apply each batch via `turbovault_batch_execute(operations=<JSON array>)`. Operation shape: `{"type": "WriteNote", "path": <vault-relative-path>, "content": <full markdown>}`. One `batch_execute` = one git commit; never loop individual `turbovault_write_note` calls (each triggers its own commit — 100+ notes takes 9+ minutes and looks like a freeze).
-5. Report: entity counts by type, total notes written, dashboard path (`<vault>/<subfolder>/<slug>/index.md`).
+2. Report: entity counts by type, total notes written, dashboard path (`<vault>/<subfolder>/<slug>/index.md`).
 
 ### update — "update FR-4", "refresh AD-2 and SM-1", "re-index E2.5"
 
 Targeted refresh by entity ID — the workhorse for keeping the graph in sync after canonical changes.
 
 1. Parse the entity IDs from the user's request.
-2. Run:
+2. Run and apply in one pipe:
    ```bash
-   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest update <ID> [<ID>...]
+   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest update <ID> [<ID>...] \
+     | uv run <skill-dir>/scripts/apply_manifest.py -
    ```
-3. Apply the manifest via `turbovault_batch_execute` (same chunking as init). The manifest contains only the changed notes plus dashboard/MOC/canvas updates.
-4. Read the JSON output's `suggestion_prompt` and present it conversationally: *"Updated E2.5. Found 4 possibly-affected notes: AD-3, FR-2, E2.4, SM-1. Also FR-8b is referenced but has no note yet. Update [All | None | list of IDs]?"*
-5. If the user says "All" or lists IDs, run `update <those IDs>` and repeat from step 3. Each call does one level of backlink crawl — iterating the conversation deepens the recursion.
-6. For one-shot cascading without conversation: `update <ID> --yes-all`.
+3. The manifest output also contains `affected`, `gaps`, and `suggestion_prompt` fields. To read them for the suggestion conversation, redirect to a file first and read the JSON before piping to apply:
+   ```bash
+   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest update <ID> > /tmp/onav_update.json
+   uv run <skill-dir>/scripts/apply_manifest.py /tmp/onav_update.json
+   ```
+   Then read `suggestion_prompt` from the JSON and present it conversationally.
+4. If the user says "All" or lists IDs, run `update <those IDs>` and repeat. Each call does one level of backlink crawl — iterating the conversation deepens the recursion.
+5. For one-shot cascading without conversation: `update <ID> --yes-all`.
 
 ### refresh — "regenerate everything", "refresh the index", "full rebuild"
 
-1. Preview first with `--dry-run`:
+1. Preview first with `--dry-run` (no apply needed — just read the JSON):
    ```bash
    uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest refresh --dry-run
    ```
 2. Report what would be created/updated/pruned. **Surface any kept-annotated leftovers** — notes with `## Personal notes` whose entity is gone from canonical. The user decides whether to delete those manually; they are never auto-pruned.
-3. On confirmation, run without `--dry-run`.
-4. Apply the manifest via `turbovault_batch_execute`:
-   - `manifest.writes` → `{"type": "WriteNote", ...}` batches (same as init)
-   - `manifest.deletes` → `{"type": "DeleteNote", "path": <path>}` batches
-5. Report: created, updated, pruned, kept-annotated. Offer to open the refresh-log.
+3. On confirmation, run and apply in one pipe:
+   ```bash
+   uv run <skill-dir>/scripts/gen_index.py --project-root . --emit-mode manifest refresh \
+     | uv run <skill-dir>/scripts/apply_manifest.py -
+   ```
+   `apply_manifest.py` handles both writes and deletes.
+4. Report: created, updated, pruned, kept-annotated. Offer to open the refresh-log.
 
 ### doctor — "check onav setup", "is onav configured?"
 
